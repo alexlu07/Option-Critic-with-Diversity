@@ -29,15 +29,29 @@ class Buffer:
         self.idx = 0
 
     def push(self, obs, next_obs, rew, done, act, opt, val):
-        self.obs[self.idx] = obs
-        self.next_obs[self.idx] = next_obs
-        self.rew[self.idx] = rew
-        self.dones[self.idx] = done
-        self.act[self.idx] = act
-        self.opt[self.idx] = opt
-        self.val[self.idx] = val
+        self.obs[self.idx] = np.array(obs)
+        self.next_obs[self.idx] = np.array(next_obs)
+        self.rew[self.idx] = np.array(rew)
+        self.dones[self.idx] = np.array(done)
+        self.act[self.idx] = np.array(act)
+        self.opt[self.idx] = np.array(opt)
+        self.val[self.idx] = val.clone().cpu().numpy().flatten()
 
         self.idx += 1
+
+    def get(self):
+        data = {
+            "obs": self.obs,
+            "next_obs": self.next_obs,
+            "rew": self.rew,
+            "dones": self.dones,
+            "act": self.act,
+            "opt": self.opt,
+            "val": self.val,
+        }
+
+        self.reset()
+        return data
         
     def is_full(self):
         return self.idx == self.batch_size
