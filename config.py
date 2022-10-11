@@ -13,3 +13,4 @@ class Config:
 
         self.lr = 1e-3
         self.temperature = 1.0
+        self.epsilon = 0.5

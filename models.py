@@ -35,8 +35,20 @@ class OptionsCritic(nn.Module):
         self.termination = nn.Linear(feature_size, self.config.num_options) # Option Termination
         self.options = [mlp(feature_size, [64], np.prod(self.config.act_shape)) for i in range(self.config.num_options)]
 
+    def step(self, obs, opt, force_term=False):
+        with torch.no_grad():
+            state = self.get_state(obs)
+            term, termprob = self.get_termination(state, opt)
+            greedy_opt, optval = self.get_option(state)
+
+            if term or force_term:
+                opt = np.random.randint(self.config.num_options) if np.random.random() < self.config.epsilon else greedy_opt
+
+            act, logp = self.get_action(state, opt)
+
+        return act.cpu().numpy(), logp.cpu().numpy(), opt, optval.cpu().numpy(), termprob.cpu().numpy()
+
     def get_state(self, obs):
-        obs = obs.unsqueeze(0)
         obs = obs.to(self.config.device)
         state = self.features(obs)
         return state
@@ -48,20 +60,17 @@ class OptionsCritic(nn.Module):
 
         act = dist.sample()
         logp = dist.log_prob(act)
-        entropy = dist.entropy()
 
-        return act, logp, entropy
+        return act, logp
 
-    def get_option(self, state, option):
+    def get_option(self, state):
         opt_dist = self.opt_policy(state)
-        next_opt = opt_dist.argmax(dim=-1)
+        greedy_opt = opt_dist.argmax(dim=-1)
 
-        return next_opt, opt_dist
+        return greedy_opt, opt_dist
 
     def get_termination(self, state, option):
         term_dist = self.termination(state).sigmoid()
-        
-        terminate = Bernoulli(term_dist[:, option]).sample()
-        terminate = bool(terminate.item())
+        terminate = Bernoulli(term_dist[:, :, option]).sample()
 
         return terminate, term_dist
