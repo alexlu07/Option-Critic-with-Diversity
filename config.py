@@ -14,3 +14,5 @@ class Config:
         self.lr = 1e-3
         self.temperature = 1.0
         self.epsilon = 0.5
+        self.gamma = 0.97
+        self.lam = 0.5
