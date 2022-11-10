@@ -33,56 +33,89 @@ class OptionsCritic(nn.Module):
 
         self.opt_policy = nn.Linear(feature_size, self.config.num_options)  # Policy over Options
         self.termination = nn.Linear(feature_size, self.config.num_options) # Option Termination
-        self.options = [mlp(feature_size, [64], np.prod(self.config.act_shape)) for i in range(self.config.num_options)]
+        self.options = [mlp(feature_size, [64], self.config.act_n) for i in range(self.config.num_options)]
 
-    def step(self, obs, opt, force_term=True):
-        n_opt = self.config.num_options
+    def step(self, obs, opt):
+        n_opts = self.config.num_options
+        n_envs = self.config.n_envs
         with torch.no_grad():
             state = self.get_state(obs)
             term, termprob = self.get_termination(state, opt)
-            greedy_opt, opt_dist = self.get_option(state)
-            optval, val = opt_dist[opt], opt_dist.max(dim=-1)[0]
+            greedy_opt, opt_dist = self.get_option_dist(state)
 
-            if force_term:
-                term.fill(1)
-
-            next_opt = np.where(np.random.rand(n_opt) < self.config.epsilon, np.random.randint(n_opt, size=n_opt), greedy_opt)
+            next_opt = np.where(np.random.rand(n_envs) < self.config.epsilon, np.random.randint(n_opts, size=n_envs), greedy_opt)
             opt = np.where(term, next_opt, opt)
+
+            optval, val = self.compute_values(opt_dist, opt)
 
             act, logp = self.get_action(state, opt)
 
         return act.cpu().numpy(), logp.cpu().numpy(), opt, optval.cpu().numpy(), val.cpu().numpy(), termprob.cpu().numpy()
 
     def get_state(self, obs):
-        obs = obs.to(self.config.device)
         state = self.features(obs)
         return state
 
     def get_action(self, state, option):
-        logits = self.options[option](state)
-        logits = (logits / self.config.temperature).softmax(-1)
-        dist = Categorical(logits)
+        dist = self.get_action_dist(state, option)
 
         act = dist.sample()
         logp = dist.log_prob(act)
 
         return act, logp
 
-    def get_option(self, state):
+    def get_action_dist(self, state, option):
+        logits = self.options[option](state)
+        logits = (logits / self.config.temperature).softmax(-1)
+        dist = Categorical(logits)
+
+        return dist
+
+    def compute_values(self, opt_dist, opt):
+        print(opt_dist.shape, opt.shape)
+        optval = torch.take_along_dim(opt_dist, np.expand_dims(opt, -1), dim=-1).squeeze()
+        val = opt_dist.max(dim=-1)[0]
+
+        return optval, val
+
+    def get_option_dist(self, state):
         opt_dist = self.opt_policy(state)
         greedy_opt = opt_dist.argmax(dim=-1)
-
         return greedy_opt, opt_dist
-
-    def get_value(self, state):
+    
+    def get_value(self, obs, opt=None):
+        state = self.get_state(obs)
         opt_dist = self.opt_policy(state)
-        return opt_dist
 
-    def get_termination(self, state, option):
+        val = opt_dist.max(dim=-1)[0]
+
+        if opt:
+            optval = torch.take_along_dim(opt_dist, np.expand_dims(opt, -1), dim=-1).squeeze()
+            return val, optval
+
+        return val
+
+    def evaluate(self, obs, act, opt):
+        state = self.get_state(obs)
+
+        act_dist = self.get_action_dist(state, opt)
+        logp = act_dist.log_prob(act)
+
+        opt_dist = self.get_option_dist(state)
+        optval = torch.take_along_dim(opt_dist, opt.unsqueeze(-1), dim=-1).squeeze()
+
+        termprob = self.get_termination(state)[1]
+
+        return logp, optval, termprob
+
+
+    def get_termination(self, state, option, obs=False):
+        if obs:
+            state = self.get_state(state)
+
         term_dist = self.termination(state).sigmoid()
-        indices = np.array(list(np.ndindex(term_dist.shape[:-1]))).reshape(*term_dist.shape[:-1], term_dist.ndim-1)
 
-        term_prob = term_dist[(*(indices[...,  i] for i in range(term_dist.ndim-1)), option)]
+        term_prob = torch.take_along_dim(term_dist, np.expand_dims(option, -1), dim=-1).squeeze()
         terminate = Bernoulli(term_prob).sample()
 
         return terminate, term_prob

@@ -1,11 +1,14 @@
 from config import Config
 
+import torch
 import numpy as np
 
 class Buffer:
     def __init__(self, config:  Config):
         self.batch_size = config.batch_size
         self.n_envs = config.n_envs
+
+        self.train_device = config.train_device
 
         self.gamma = config.gamma
         self.lam = config.lam
@@ -51,15 +54,18 @@ class Buffer:
             "act": self.act,
             "opt": self.opt,
             "val": self.optval,
+            "adv": self.adv,
+            "ret": self.ret,
         }
 
         self.idx = 0
-        return data
+        return {key: torch.as_tensor(data[key], dtype=torch.float32).to(self.train_device) for key in data}
+
 
     def compute_returns_and_advantages(self, last_optval = 0, last_val = 0, last_termprob = 0):
-        last_val = last_val.clone().cpu().numpy().flatten()
-        last_optval = last_optval.clone().cpu().numpy().flatten()
-        last_termprob = last_termprob.clone().cpu().numpy().flatten()
+        last_val = last_val.clone().cpu().numpy()
+        last_optval = last_optval.clone().cpu().numpy()
+        last_termprob = last_termprob.clone().cpu().numpy()
 
         last_gae_lam = 0
         for step in reversed(range(self.batch_size)):

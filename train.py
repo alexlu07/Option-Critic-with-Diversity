@@ -1,5 +1,10 @@
+import os
+import time
 import gym
 import numpy as np
+import torch
+from torch.nn import functional as F
+from torch.optim import Adam
 
 from buffer import Buffer
 from config import Config
@@ -10,39 +15,132 @@ class Trainer:
         self.config = config
 
         self.env = self.config.env
-        self.obs = self.env.reset()
+        self.obs = torch.as_tensor(self.env.reset(), dtype=torch.float32).to(self.config.rollout_device)
 
         self.model = OptionsCritic(self.config)
+        self.optimizer = Adam(self.model.parameters(), lr=self.config.lr)
         self.buffer = Buffer(self.config)
         
+        self.epoch = 0
+        
     def train_one_epoch(self):
-        pass
+        start = time.time()
+
+        self.model.to(self.config.rollout_device)
+
+        ep_len, ep_ret = self.collect_rollout()
+
+        rollout_time = time.time() - start
+        start = time.time()
+
+        self.model.to(self.config.train_device)
+
+        data = self.buffer.get()
+        
+        for i in range(self.config.n_steps):
+            self.optimizer.zero_grad()
+            loss = self.get_loss(data)
+            loss.backward()
+            self.optimizer.step()
+
+        training_time = time.time() - start
+
+        self.epoch += 1
+
+        return self.epoch, ep_len, ep_ret, rollout_time, training_time 
 
     def collect_rollout(self):
-        self.buffer.reset()
+        ep_len = []
+        ep_ret = []
 
         obs = self.obs
-        opt = None
-        forceterm = True
+        opt = self.model.get_option_dist(self.model.get_state(obs))[0] # start with greedy_opt
 
+        curr_len = np.zeros(self.config.n_envs)
+        curr_ret = np.zeros(self.config.n_envs)
         while not self.buffer.is_full():
-            act, logp, opt, optval, val, termprob = self.model.step(obs, opt, forceterm)
-            next_obs, rew, done, truncated, _ = self.env.step(act)
+            # step
+            act, logp, opt, optval, val, termprob = self.model.step(obs, opt)
+            next_obs, rew, done, info = self.env.step(act)
 
-            forceterm = False
+            curr_len += 1
+            curr_ret += rew
 
-            if np.any(truncated):
-                rew[truncated] += self.model.get_value(next_obs[truncated])
+            # print("I'm unstoppable im a porsche  with no breaks, im invincible;laksdflkadskuaisuiawprey meth" - Ming Lu
 
+            # bootstrap truncated environments
+            for idx, d in enumerate(done):
+                if (
+                    d
+                    and info[idx].get("terminal_observation") is not None
+                    and info[idx].get("TimeLimit.truncated", False)
+                ):
+                    terminal_obs = torch.as_tensor(info[idx]["terminal_observation"], dtype=torch.float32).to(self.config.rollout_device)
+
+                    with torch.no_grad():
+                        val = self.model.get_value(obs)
+                    rew[idx] += val.cpu().numpy()
+
+
+            # push step and move to next observation
             self.buffer.push(obs, rew, done, act, logp, opt, optval, val, termprob)
+            obs = torch.as_tensor(next_obs, dtype=torch.float32).to(self.config.rollout_device)
+            
+            if np.any(done):
+                ep_len.extend(curr_len[done])
+                ep_ret.extend(curr_ret[done])
 
-            obs = next_obs
+                curr_len[done] = 0
+                curr_ret[done] = 0
 
-        opt_dist = self.model.get_value(obs)
-        self.buffer.compute_returns_and_advantages(opt_dist[opt], opt_dist.max(dim=-1)[0], self.model.get_termination(obs)[1])
+                # get new greedy option for terminated environments
+                opt[done] = self.model.get_option_dist(self.model.get_state(obs[done]))[0]
 
-    def actor_loss():
-        pass
 
-    def critic_loss():
-        pass
+        # bootstrapping truncated environments
+        with torch.no_grad():
+            val, optval = self.model.get_value(obs, opt)
+            termprob = self.model.get_termination(obs, obs=True)[1]
+
+        self.buffer.compute_returns_and_advantages(optval, val, termprob)
+
+        self.obs = obs
+
+        return ep_len, ep_ret
+
+    def get_loss(self, data):
+        obs = data["obs"]
+        mask = 1 - data["dones"]
+        act = data["act"]
+        opt = data["opt"]
+        ret = data["ret"]
+        adv = data["adv"]
+        optval_old = data["optval"]
+        val_old = data["val"]
+        
+        logp, optval, termprob = self.model.evaluate(obs, act, opt)
+
+        policy_loss = -logp * adv
+        critic_loss = F.mse_loss(ret, optval)
+        termination_loss = termprob * (optval_old - val_old + self.config.termination_reg) * mask
+
+        loss = policy_loss + critic_loss + termination_loss
+
+        return loss
+
+    def save_state(self, save_interval):
+        if os.path.exists("./results/weights/current_checkpoint.pt"):
+            os.rename("./results/weights/current_checkpoint.pt", f"./results/weights/{self.epoch-save_interval}.pt")
+            
+        torch.save({
+            "model": self.model.state_dict(),
+            "optimizer": self.optimizer.state_dict(),
+            "epoch": self.epoch,
+        }, f"./results/weights/current_checkpoint.pt")
+
+    def load_state(self, e):
+        checkpoint = torch.load(f"./results/weights/{e}.pt")
+
+        self.model.load_state_dict(checkpoint["model"])
+        self.optimizer.load_state_dict(checkpoint["optimizer"])
+        self.epoch = checkpoint["epoch"]
