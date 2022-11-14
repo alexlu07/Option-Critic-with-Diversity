@@ -5,7 +5,7 @@ from config import Config
 from train import Trainer
 
 def train(env, save=True, load=True, epoch=None, save_interval=10, n_envs=4):
-    config = Config(env)
+    config = Config()
     config.make_env(env, n_envs)
 
     trainer = Trainer(config)
@@ -25,14 +25,14 @@ def train(env, save=True, load=True, epoch=None, save_interval=10, n_envs=4):
         log = f"{epoch}: (ep_len: {ep_len}, ep_ret: {ep_ret}, ep_time: {rollout_time:.4f}, train_time: {training_time:.4f})"
         print(log)
 
-        if epoch % save_interval == 0:
+        if save and epoch % save_interval == 0:
             trainer.save_state(save_interval)
             with open("./results/log.txt", "a") as f:
                 f.write(log + "\n")
 
 def watch(env, epoch):
     config = Config()
-    config.make_env(env, 1)
+    config.make_env(env, 1,render_mode="human")
 
     trainer = Trainer(config)
     trainer.load_state(epoch)
@@ -68,5 +68,5 @@ def watch(env, epoch):
     
 
 
-watch("CartPole-v1", 700)
-# train("CartPole-v1", load=False)
+# watch("CartPole-v1", 700)
+train("CartPole-v1", load=False, save=False)

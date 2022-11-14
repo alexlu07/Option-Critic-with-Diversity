@@ -63,7 +63,7 @@ class Trainer:
         while not self.buffer.is_full():
             # step
             act, logp, opt, optval, val, termprob = self.model.step(obs, opt)
-            next_obs, rew, done, info = self.env.step(act)
+            next_obs, rew, done, truncated, info = self.env.step(act)
 
             curr_len += 1
             curr_ret += rew
@@ -71,17 +71,12 @@ class Trainer:
             # print("I'm unstoppable im a porsche  with no breaks, im invincible;laksdflkadskuaisuiawprey meth" - Ming Lu
 
             # bootstrap truncated environments
-            for idx, d in enumerate(done):
-                if (
-                    d
-                    and info[idx].get("terminal_observation") is not None
-                    and info[idx].get("TimeLimit.truncated", False)
-                ):
-                    terminal_obs = torch.as_tensor(info[idx]["terminal_observation"], dtype=torch.float32).to(self.config.rollout_device)
+            if np.any(truncated):
+                terminal_obs = torch.as_tensor(info["final_observation"][truncated], dtype=torch.float32).to(self.config.rollout_device)
 
-                    with torch.no_grad():
-                        val = self.model.get_value(terminal_obs)
-                    rew[idx] += val.cpu().numpy()
+                with torch.no_grad():
+                    val = self.model.get_value(terminal_obs)
+                rew[truncated] += val.cpu().numpy()
 
 
             # push step and move to next observation
