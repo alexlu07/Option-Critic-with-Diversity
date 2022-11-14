@@ -1,6 +1,5 @@
 import os
 import time
-import gym
 import numpy as np
 import torch
 from torch.nn import functional as F
@@ -15,9 +14,12 @@ class Trainer:
         self.config = config
 
         self.env = self.config.env
-        self.obs = torch.as_tensor(self.env.reset(), dtype=torch.float32).to(self.config.rollout_device)
 
         self.model = OptionsCritic(self.config)
+
+        self.obs = torch.as_tensor(self.env.reset()[0], dtype=torch.float32).to(self.config.rollout_device)
+        self.opt = self.model.get_option_dist(self.model.get_state(self.obs))[0] # start with greedy_opt
+
         self.optimizer = Adam(self.model.parameters(), lr=self.config.lr)
         self.buffer = Buffer(self.config)
         
@@ -54,7 +56,7 @@ class Trainer:
         ep_ret = []
 
         obs = self.obs
-        opt = self.model.get_option_dist(self.model.get_state(obs))[0] # start with greedy_opt
+        opt = self.opt
 
         curr_len = np.zeros(self.config.n_envs)
         curr_ret = np.zeros(self.config.n_envs)
@@ -78,12 +80,12 @@ class Trainer:
                     terminal_obs = torch.as_tensor(info[idx]["terminal_observation"], dtype=torch.float32).to(self.config.rollout_device)
 
                     with torch.no_grad():
-                        val = self.model.get_value(obs)
+                        val = self.model.get_value(terminal_obs)
                     rew[idx] += val.cpu().numpy()
 
 
             # push step and move to next observation
-            self.buffer.push(obs, rew, done, act, logp, opt, optval, val, termprob)
+            self.buffer.push(obs, rew, done, act, logp, opt.clone().cpu().numpy(), optval, val, termprob)
             obs = torch.as_tensor(next_obs, dtype=torch.float32).to(self.config.rollout_device)
             
             if np.any(done):
@@ -100,11 +102,12 @@ class Trainer:
         # bootstrapping truncated environments
         with torch.no_grad():
             val, optval = self.model.get_value(obs, opt)
-            termprob = self.model.get_termination(obs, obs=True)[1]
+            termprob = self.model.get_termination(obs, opt, obs=True)[1]
 
         self.buffer.compute_returns_and_advantages(optval, val, termprob)
 
         self.obs = obs
+        self.opt = opt
 
         return ep_len, ep_ret
 
@@ -112,7 +115,7 @@ class Trainer:
         obs = data["obs"]
         mask = 1 - data["dones"]
         act = data["act"]
-        opt = data["opt"]
+        opt = data["opt"].to(torch.int64)
         ret = data["ret"]
         adv = data["adv"]
         optval_old = data["optval"]
@@ -120,9 +123,9 @@ class Trainer:
         
         logp, optval, termprob = self.model.evaluate(obs, act, opt)
 
-        policy_loss = -logp * adv
+        policy_loss = (-logp * adv).mean()
         critic_loss = F.mse_loss(ret, optval)
-        termination_loss = termprob * (optval_old - val_old + self.config.termination_reg) * mask
+        termination_loss = (termprob * (optval_old - val_old + self.config.termination_reg) * mask).mean()
 
         loss = policy_loss + critic_loss + termination_loss
 

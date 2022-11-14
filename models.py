@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 from torch.distributions import Categorical, Bernoulli
+from functorch import combine_state_for_ensemble, vmap
 import numpy as np
 
 from config import Config
@@ -33,8 +34,14 @@ class OptionsCritic(nn.Module):
 
         self.opt_policy = nn.Linear(feature_size, self.config.num_options)  # Policy over Options
         self.termination = nn.Linear(feature_size, self.config.num_options) # Option Termination
-        self.options = [mlp(feature_size, [64], self.config.act_n) for i in range(self.config.num_options)]
+        # self.options_W = nn.Parameter(torch.rand(self.config.num_options, feature_size, self.config.act_n))
+        # self.options_B = nn.Parameter(torch.zeros(self.config.num_options, self.config.act_n))
 
+        fmodel, self.optparams, self.optbuffers = combine_state_for_ensemble([mlp(feature_size, [64], self.config.act_n) for i in range(self.config.num_options)])
+        self.optmodel = vmap(fmodel)
+        self.batch_optmodel = vmap(self.optmodel)
+        self.optparams = nn.ParameterList(self.optparams)
+        
     def step(self, obs, opt):
         n_opts = self.config.num_options
         n_envs = self.config.n_envs
@@ -43,8 +50,8 @@ class OptionsCritic(nn.Module):
             term, termprob = self.get_termination(state, opt)
             greedy_opt, opt_dist = self.get_option_dist(state)
 
-            next_opt = np.where(np.random.rand(n_envs) < self.config.epsilon, np.random.randint(n_opts, size=n_envs), greedy_opt)
-            opt = np.where(term, next_opt, opt)
+            next_opt = torch.where(torch.rand(n_envs) < self.config.epsilon, torch.randint(n_opts, size=(n_envs,)), greedy_opt)
+            opt = torch.where(term, next_opt, opt)
 
             optval, val = self.compute_values(opt_dist, opt)
 
@@ -65,15 +72,16 @@ class OptionsCritic(nn.Module):
         return act, logp
 
     def get_action_dist(self, state, option):
-        logits = self.options[option](state)
+        params = tuple(p[option] for p in self.optparams)
+        optmodel = self.optmodel if option.ndim == 1 else self.batch_optmodel
+        logits = optmodel(params, self.optbuffers, state)
         logits = (logits / self.config.temperature).softmax(-1)
         dist = Categorical(logits)
 
         return dist
 
     def compute_values(self, opt_dist, opt):
-        print(opt_dist.shape, opt.shape)
-        optval = torch.take_along_dim(opt_dist, np.expand_dims(opt, -1), dim=-1).squeeze()
+        optval = torch.take_along_dim(opt_dist, opt.unsqueeze(-1), dim=-1).squeeze()
         val = opt_dist.max(dim=-1)[0]
 
         return optval, val
@@ -89,8 +97,8 @@ class OptionsCritic(nn.Module):
 
         val = opt_dist.max(dim=-1)[0]
 
-        if opt:
-            optval = torch.take_along_dim(opt_dist, np.expand_dims(opt, -1), dim=-1).squeeze()
+        if opt is not None:
+            optval = torch.take_along_dim(opt_dist, opt.unsqueeze(-1), dim=-1).squeeze()
             return val, optval
 
         return val
@@ -101,10 +109,10 @@ class OptionsCritic(nn.Module):
         act_dist = self.get_action_dist(state, opt)
         logp = act_dist.log_prob(act)
 
-        opt_dist = self.get_option_dist(state)
+        opt_dist = self.get_option_dist(state)[1]
         optval = torch.take_along_dim(opt_dist, opt.unsqueeze(-1), dim=-1).squeeze()
 
-        termprob = self.get_termination(state)[1]
+        termprob = self.get_termination(state, opt)[1]
 
         return logp, optval, termprob
 
@@ -115,7 +123,7 @@ class OptionsCritic(nn.Module):
 
         term_dist = self.termination(state).sigmoid()
 
-        term_prob = torch.take_along_dim(term_dist, np.expand_dims(option, -1), dim=-1).squeeze()
-        terminate = Bernoulli(term_prob).sample()
+        term_prob = torch.take_along_dim(term_dist, option.unsqueeze(-1), dim=-1).squeeze()
+        terminate = Bernoulli(term_prob).sample().to(bool)
 
         return terminate, term_prob

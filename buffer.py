@@ -53,7 +53,8 @@ class Buffer:
             "dones": self.dones,
             "act": self.act,
             "opt": self.opt,
-            "val": self.optval,
+            "optval": self.optval,
+            "val": self.val,
             "adv": self.adv,
             "ret": self.ret,
         }
@@ -69,7 +70,7 @@ class Buffer:
 
         last_gae_lam = 0
         for step in reversed(range(self.batch_size)):
-            next_non_terminal = 1.0 - self.dones # done[t], because done represents for next state already
+            next_non_terminal = 1.0 - self.dones[step] # done[t], because done represents for next state already
             if step == self.batch_size - 1:
                 next_val = last_val
                 next_optval = last_optval

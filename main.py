@@ -1,13 +1,13 @@
-from stable_baselines3.common.env_util import make_vec_env
-from stable_baselines3.common.vec_env import DummyVecEnv, SubprocVecEnv
+import gym
+import torch
 from config import Config
 
 from train import Trainer
 
-env = make_vec_env("MountainCar-v0", n_envs=4, seed=0, vec_env_cls=DummyVecEnv)
-
-def train(env, save=True, load=True, epoch=None, save_interval=10):
+def train(env, save=True, load=True, epoch=None, save_interval=10, n_envs=4):
     config = Config(env)
+    config.make_env(env, n_envs)
+
     trainer = Trainer(config)
 
     if load:
@@ -25,9 +25,48 @@ def train(env, save=True, load=True, epoch=None, save_interval=10):
         log = f"{epoch}: (ep_len: {ep_len}, ep_ret: {ep_ret}, ep_time: {rollout_time:.4f}, train_time: {training_time:.4f})"
         print(log)
 
-        if save:
+        if epoch % save_interval == 0:
             trainer.save_state(save_interval)
             with open("./results/log.txt", "a") as f:
                 f.write(log + "\n")
 
-train(env, load=False)
+def watch(env, epoch):
+    config = Config()
+    config.make_env(env, 1)
+
+    trainer = Trainer(config)
+    trainer.load_state(epoch)
+
+    changed = True
+
+    obs = trainer.obs
+    opt = trainer.opt
+
+    for i in range(2048):
+        trainer.env.call("render")
+
+        if changed:
+            print("======== OPTION", opt, "========")
+
+        changed = False
+
+        act, logp, next_opt, optval, val, termprob = trainer.model.step(obs, opt)
+        next_obs, rew, done, terminated, info = trainer.env.step(act)
+
+        if next_opt != opt:
+            changed = True
+
+        opt = next_opt
+
+        obs = torch.as_tensor(next_obs, dtype=torch.float32)
+        
+        if done:
+            opt[done] = trainer.model.get_option_dist(trainer.model.get_state(obs[done]))[0]
+            changed = True
+
+    trainer.env.close()
+    
+
+
+watch("CartPole-v1", 700)
+# train("CartPole-v1", load=False)
