@@ -4,9 +4,9 @@ from config import Config
 
 from train import Trainer
 
-def train(env, save=True, load=True, epoch=None, save_interval=10, n_envs=4):
+def train(env, save=True, load=True, epoch=None, save_interval=10, n_envs=4, asynchronous = False):
     config = Config()
-    config.make_env(env, n_envs)
+    config.make_env(env, n_envs, asynchronous=asynchronous)
 
     trainer = Trainer(config)
 
@@ -69,4 +69,4 @@ def watch(env, epoch):
 
 
 # watch("CartPole-v1", 700)
-train("CartPole-v1", load=False, save=False)
+train("CartPole-v1", load=False, save=False, asynchronous=False)

@@ -63,7 +63,9 @@ class Trainer:
         while not self.buffer.is_full():
             # step
             act, logp, opt, optval, val, termprob = self.model.step(obs, opt)
-            next_obs, rew, done, truncated, info = self.env.step(act)
+            next_obs, rew, terminated, truncated, info = self.env.step(act)
+
+            done = terminated + truncated
 
             curr_len += 1
             curr_ret += rew
@@ -72,7 +74,7 @@ class Trainer:
 
             # bootstrap truncated environments
             if np.any(truncated):
-                terminal_obs = torch.as_tensor(info["final_observation"][truncated], dtype=torch.float32).to(self.config.rollout_device)
+                terminal_obs = torch.as_tensor(np.stack(info["final_observation"][truncated]), dtype=torch.float32).to(self.config.rollout_device)
 
                 with torch.no_grad():
                     val = self.model.get_value(terminal_obs)
@@ -83,6 +85,7 @@ class Trainer:
             self.buffer.push(obs, rew, done, act, logp, opt.clone().cpu().numpy(), optval, val, termprob)
             obs = torch.as_tensor(next_obs, dtype=torch.float32).to(self.config.rollout_device)
             
+
             if np.any(done):
                 ep_len.extend(curr_len[done])
                 ep_ret.extend(curr_ret[done])
