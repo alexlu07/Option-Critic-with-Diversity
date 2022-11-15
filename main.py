@@ -1,5 +1,6 @@
 import gym
 import torch
+import numpy as np
 from config import Config
 
 from train import Trainer
@@ -17,12 +18,15 @@ def train(env, save=True, load=True, epoch=None, save_interval=10, n_envs=4, asy
             trainer.load_state("current_checkpoint")
 
     while True:
-        epoch, ep_len, ep_ret, rollout_time, training_time = trainer.train_one_epoch()
+        epoch, ep_len, ep_ret, ep_opt, rollout_time, training_time = trainer.train_one_epoch()
         ep_len = sum(ep_len)/len(ep_len)
         ep_ret = sum(ep_ret)/len(ep_ret)
 
+        ep_opt = np.array(ep_opt)
+        ep_opt = ep_opt.sum(axis=0)/ep_opt.sum()
+        ep_opt = [f"{i:.4f}" for i in ep_opt]
 
-        log = f"{epoch}: (ep_len: {ep_len}, ep_ret: {ep_ret}, ep_time: {rollout_time:.4f}, train_time: {training_time:.4f})"
+        log = f"{epoch}: (ep_len: {ep_len:.4f}, ep_ret: {ep_ret:.4f}, opt_usage: [{', '.join(ep_opt)}], ep_time: {rollout_time:.4f}, train_time: {training_time:.4f})"
         print(log)
 
         if save and epoch % save_interval == 0:
@@ -32,6 +36,7 @@ def train(env, save=True, load=True, epoch=None, save_interval=10, n_envs=4, asy
 
 def watch(env, epoch):
     config = Config()
+    config.testing = True
     config.make_env(env, 1,render_mode="human")
 
     trainer = Trainer(config)
@@ -50,7 +55,7 @@ def watch(env, epoch):
 
         changed = False
 
-        act, logp, next_opt, optval, val, termprob = trainer.model.step(obs, opt)
+        act, logp, next_opt, optval, val, termprob = trainer.model.step(obs, opt, i)
         next_obs, rew, done, terminated, info = trainer.env.step(act)
 
         if next_opt != opt:

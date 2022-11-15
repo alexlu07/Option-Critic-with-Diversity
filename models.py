@@ -42,7 +42,7 @@ class OptionsCritic(nn.Module):
         self.batch_optmodel = vmap(self.optmodel)
         self.optparams = nn.ParameterList(self.optparams)
         
-    def step(self, obs, opt):
+    def step(self, obs, opt, epoch):
         n_opts = self.config.num_options
         n_envs = self.config.n_envs
         with torch.no_grad():
@@ -50,7 +50,7 @@ class OptionsCritic(nn.Module):
             term, termprob = self.get_termination(state, opt)
             greedy_opt, opt_dist = self.get_option_dist(state)
 
-            next_opt = torch.where(torch.rand(n_envs) < self.config.epsilon, torch.randint(n_opts, size=(n_envs,)), greedy_opt)
+            next_opt = torch.where(torch.rand(n_envs) < self.config.epsilon(epoch), torch.randint(n_opts, size=(n_envs,)), greedy_opt)
             opt = torch.where(term, next_opt, opt)
 
             optval, val = self.compute_values(opt_dist, opt)

@@ -1,9 +1,12 @@
 import gymnasium as gym
+import numpy as np
 
 class Config:
     def __init__(self):
         self.rollout_device = "cpu"
-        self.train_device = "cuda"
+        self.train_device = "cpu"
+
+        self.testing = False
 
         self.n_steps = 2
         
@@ -13,10 +16,21 @@ class Config:
 
         self.lr = 0.01
         self.temperature = 1.0
-        self.epsilon = 0.25
+        self.eps_start = 1.0
+        self.eps_min = 0.1
+        self.eps_decay = 30
+        self.eps_testing = 0.05
         self.gamma = 0.99
         self.lam = 0.95
         self.termination_reg = 0.01
+
+    def epsilon(self, epoch):
+        if self.testing:
+            eps = self.eps_testing
+        else:
+            eps = self.eps_min + (self.eps_start - self.eps_min) * np.exp(-epoch / self.eps_decay)
+
+        return eps
 
     def make_env(self, env, n_envs, render_mode=None, asynchronous=False):
         self.n_envs = n_envs

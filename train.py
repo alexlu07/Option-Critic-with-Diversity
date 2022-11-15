@@ -30,7 +30,7 @@ class Trainer:
 
         self.model.to(self.config.rollout_device)
 
-        ep_len, ep_ret = self.collect_rollout()
+        ep_len, ep_ret, ep_opt = self.collect_rollout()
 
         rollout_time = time.time() - start
         start = time.time()
@@ -49,26 +49,29 @@ class Trainer:
 
         self.epoch += 1
 
-        return self.epoch, ep_len, ep_ret, rollout_time, training_time 
+        return self.epoch, ep_len, ep_ret, ep_opt, rollout_time, training_time 
 
     def collect_rollout(self):
         ep_len = []
         ep_ret = []
+        ep_opt = []
 
         obs = self.obs
         opt = self.opt
 
         curr_len = np.zeros(self.config.n_envs)
         curr_ret = np.zeros(self.config.n_envs)
+        curr_opt = np.zeros((self.config.n_envs, self.config.num_options))
         while not self.buffer.is_full():
             # step
-            act, logp, opt, optval, val, termprob = self.model.step(obs, opt)
+            act, logp, opt, optval, val, termprob = self.model.step(obs, opt, self.epoch)
             next_obs, rew, terminated, truncated, info = self.env.step(act)
 
             done = terminated + truncated
 
             curr_len += 1
             curr_ret += rew
+            curr_opt[range(self.config.n_envs), opt] += 1
 
             # print("I'm unstoppable im a porsche  with no breaks, im invincible;laksdflkadskuaisuiawprey meth" - Ming Lu
 
@@ -89,9 +92,11 @@ class Trainer:
             if np.any(done):
                 ep_len.extend(curr_len[done])
                 ep_ret.extend(curr_ret[done])
+                ep_opt.extend(curr_opt[done])
 
                 curr_len[done] = 0
                 curr_ret[done] = 0
+                curr_opt[done].fill(0)
 
                 # get new greedy option for terminated environments
                 opt[done] = self.model.get_option_dist(self.model.get_state(obs[done]))[0]
@@ -107,7 +112,7 @@ class Trainer:
         self.obs = obs
         self.opt = opt
 
-        return ep_len, ep_ret
+        return ep_len, ep_ret, ep_opt
 
     def get_loss(self, data):
         obs = data["obs"]
