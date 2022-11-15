@@ -77,17 +77,16 @@ class Trainer:
 
             # bootstrap truncated environments
             if np.any(truncated):
-                terminal_obs = torch.as_tensor(np.stack(info["final_observation"][truncated]), dtype=torch.float32).to(self.config.rollout_device)
+                final_obs = torch.as_tensor(np.stack(info["final_observation"][truncated]), dtype=torch.float32).to(self.config.rollout_device)
 
                 with torch.no_grad():
-                    val = self.model.get_value(terminal_obs)
-                rew[truncated] += val.cpu().numpy()
+                    final_val = self.model.get_value(final_obs)
+                rew[truncated] += final_val.cpu().numpy()
 
 
             # push step and move to next observation
             self.buffer.push(obs, rew, done, act, logp, opt.clone().cpu().numpy(), optval, val, termprob)
             obs = torch.as_tensor(next_obs, dtype=torch.float32).to(self.config.rollout_device)
-            
 
             if np.any(done):
                 ep_len.extend(curr_len[done])
@@ -100,7 +99,6 @@ class Trainer:
 
                 # get new greedy option for terminated environments
                 opt[done] = self.model.get_option_dist(self.model.get_state(obs[done]))[0]
-
 
         # bootstrapping truncated environments
         with torch.no_grad():
