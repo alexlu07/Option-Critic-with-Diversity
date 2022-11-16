@@ -49,7 +49,7 @@ class Trainer:
 
         self.epoch += 1
 
-        return self.epoch, ep_len, ep_ret, ep_opt, rollout_time, training_time 
+        return self.epoch, ep_len, ep_ret, ep_opt, rollout_time, training_time, self.config.epsilon(self.epoch)
 
     def collect_rollout(self):
         ep_len = []

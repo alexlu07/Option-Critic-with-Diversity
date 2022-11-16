@@ -8,13 +8,13 @@ class Config:
 
         self.testing = False
 
-        self.n_steps = 2
+        self.n_steps = 3
         
         self.num_options = 2
 
-        self.batch_size = 2048
+        self.batch_size = 512
 
-        self.lr = 0.01
+        self.lr = 0.001
         self.temperature = 1.0
         self.eps_start = 1.0
         self.eps_min = 0.1
