@@ -37,11 +37,12 @@ class Trainer:
 
         self.model.to(self.config.train_device)
 
-        data = self.buffer.get()
-        
-        for i in range(self.config.n_steps):
+        loss_logs = []
+
+        for data in self.buffer.get():
             self.optimizer.zero_grad()
-            loss = self.get_loss(data)
+            loss, logs = self.get_loss(data)
+            loss_logs.append(logs)
             loss.backward()
             self.optimizer.step()
 
@@ -49,7 +50,10 @@ class Trainer:
 
         self.epoch += 1
 
-        return self.epoch, ep_len, ep_ret, ep_opt, rollout_time, training_time, self.config.epsilon(self.epoch)
+        loss_logs = np.array(loss_logs)
+        actor_loss, critic_loss, termination_loss = loss_logs.mean(0)
+
+        return self.epoch, actor_loss, critic_loss, termination_loss, ep_len, ep_ret, ep_opt, rollout_time, training_time, self.config.epsilon(self.epoch)
 
     def collect_rollout(self):
         ep_len = []
@@ -130,7 +134,7 @@ class Trainer:
 
         loss = policy_loss + critic_loss + termination_loss
 
-        return loss
+        return loss, (policy_loss.cpu().item(), critic_loss.cpu().item(), termination_loss.cpu().item())
 
     def save_state(self, save_interval):
         if os.path.exists("./results/weights/current_checkpoint.pt"):

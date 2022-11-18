@@ -7,11 +7,14 @@ class Config:
         self.train_device = "cpu"
 
         self.testing = False
-
-        self.n_steps = 3
         
+        self.feature_arch = []
+        self.critic_arch = [64]
+        self.term_arch = [64]
+        self.opt_arch = [64]
         self.num_options = 2
 
+        self.minibatch_size = 128
         self.batch_size = 512
 
         self.lr = 0.001
@@ -40,3 +43,7 @@ class Config:
         self.obs_shape = self.env.single_observation_space.shape
         self.act_shape = self.env.single_action_space.shape
         self.act_n = self.env.single_action_space.n
+
+    @property
+    def feature_size(self):
+        return self.feature_arch[-1] if self.feature_arch else np.prod(self.obs_shape)

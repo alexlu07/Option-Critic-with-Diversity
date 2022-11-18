@@ -6,6 +6,7 @@ import numpy as np
 class Buffer:
     def __init__(self, config:  Config):
         self.batch_size = config.batch_size
+        self.minibatch_size = config.minibatch_size
         self.n_envs = config.n_envs
 
         self.train_device = config.train_device
@@ -59,9 +60,16 @@ class Buffer:
             "ret": self.ret,
         }
 
-        self.idx = 0
-        return {key: torch.as_tensor(data[key], dtype=torch.float32).to(self.train_device) for key in data}
+        data = {key: self.swap_and_flatten(data[key]) for key in data}
 
+        indices = np.random.permutation(self.batch_size * self.n_envs)
+
+        i = 0
+        while i < self.batch_size * self.n_envs:
+            yield {key: torch.as_tensor(data[key][indices[i: i + self.minibatch_size]], dtype=torch.float32).to(self.train_device) for key in data}
+            i += self.minibatch_size
+
+        self.idx = 0
 
     def compute_returns_and_advantages(self, last_optval = 0, last_val = 0, last_termprob = 0):
         last_val = last_val.clone().cpu().numpy()
@@ -89,3 +97,10 @@ class Buffer:
 
     def is_full(self):
         return self.idx == self.batch_size
+
+    def swap_and_flatten(self, arr):
+        shape = arr.shape
+        if len(shape) < 3:
+            return arr.swapaxes(0, 1).reshape(shape[0] * shape[1])
+
+        return arr.swapaxes(0, 1).reshape(shape[0] * shape[1], *shape[2:])

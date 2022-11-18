@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from torch.distributions import Categorical, Bernoulli
 from functorch import combine_state_for_ensemble, vmap
 import numpy as np
@@ -21,6 +22,8 @@ def mlp(
         layers += [nn.Linear(sizes[i], sizes[i + 1]), act()]
     return nn.Sequential(*layers)
 
+def conv():
+    raise NotImplementedError
 
 class OptionsCritic(nn.Module):
     def __init__(self, config: Config):
@@ -28,16 +31,15 @@ class OptionsCritic(nn.Module):
 
         self.config = config
 
-        feature_size = 128
+        if config.feature_arch:
+            self.features = mlp(np.prod(self.config.obs_shape), config.feature_arch[:-1], config.feature_arch[-1])
+        else:
+            self.features = nn.Identity()
 
-        self.features = mlp(np.prod(self.config.obs_shape), [64], feature_size, output_activation=nn.ReLU)
+        self.opt_critic = mlp(config.feature_size, config.critic_arch, config.num_options) # Policy over Options
+        self.termination = mlp(config.feature_size, config.term_arch, config.num_options) # Option Termination
 
-        self.opt_policy = nn.Linear(feature_size, self.config.num_options)  # Policy over Options
-        self.termination = nn.Linear(feature_size, self.config.num_options) # Option Termination
-        # self.options_W = nn.Parameter(torch.rand(self.config.num_options, feature_size, self.config.act_n))
-        # self.options_B = nn.Parameter(torch.zeros(self.config.num_options, self.config.act_n))
-
-        fmodel, self.optparams, self.optbuffers = combine_state_for_ensemble([mlp(feature_size, [64], self.config.act_n) for i in range(self.config.num_options)])
+        fmodel, self.optparams, self.optbuffers = combine_state_for_ensemble([mlp(config.feature_size, config.opt_arch, config.act_n) for i in range(config.num_options)])
         self.optmodel = vmap(fmodel)
         self.batch_optmodel = vmap(self.optmodel)
         self.optparams = nn.ParameterList(self.optparams)
@@ -58,6 +60,7 @@ class OptionsCritic(nn.Module):
             act, logp = self.get_action(state, opt)
 
         return act.cpu().numpy(), logp.cpu().numpy(), opt, optval.cpu().numpy(), val.cpu().numpy(), termprob.cpu().numpy()
+        # return act.cpu().numpy(), logp.cpu().numpy(), opt, optval.cpu().numpy(), val.cpu().numpy(), termprob.cpu().numpy(), term, opt_dist, next_opt
 
     def get_state(self, obs):
         state = self.features(obs)
@@ -87,13 +90,13 @@ class OptionsCritic(nn.Module):
         return optval, val
 
     def get_option_dist(self, state):
-        opt_dist = self.opt_policy(state)
+        opt_dist = self.opt_critic(state)
         greedy_opt = opt_dist.argmax(dim=-1)
         return greedy_opt, opt_dist
     
     def get_value(self, obs, opt=None):
         state = self.get_state(obs)
-        opt_dist = self.opt_policy(state)
+        opt_dist = self.opt_critic(state)
 
         val = opt_dist.max(dim=-1)[0]
 

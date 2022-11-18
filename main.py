@@ -2,6 +2,7 @@ import gym
 import torch
 import numpy as np
 from config import Config
+import time
 
 from train import Trainer
 
@@ -18,7 +19,7 @@ def train(env, save=True, load=True, epoch=None, save_interval=10, n_envs=4, asy
             trainer.load_state("current_checkpoint")
 
     while True:
-        epoch, ep_len, ep_ret, ep_opt, rollout_time, training_time, eps = trainer.train_one_epoch()
+        epoch, pi_loss, vf_loss, term_loss, ep_len, ep_ret, ep_opt, rollout_time, training_time, eps = trainer.train_one_epoch()
         ep_len = sum(ep_len)/len(ep_len)
         ep_ret = sum(ep_ret)/len(ep_ret)
 
@@ -26,7 +27,7 @@ def train(env, save=True, load=True, epoch=None, save_interval=10, n_envs=4, asy
         ep_opt = ep_opt.sum(axis=0)/ep_opt.sum()
         ep_opt = [f"{i:.4f}" for i in ep_opt]
 
-        log = f"{epoch}: (ep_len: {ep_len:.4f}, ep_ret: {ep_ret:.4f}, opt_usage: [{', '.join(ep_opt)}], eps: {eps}, ep_time: {rollout_time:.4f}, train_time: {training_time:.4f})"
+        log = f"{epoch}: (act_loss: {pi_loss:.4f}, crit_loss: {vf_loss:.8f}, term_loss: {term_loss:.4f}, ep_len: {ep_len:.4f}, ep_ret: {ep_ret:.4f}, opt_usage: [{', '.join(ep_opt)}], eps: {eps}, ep_time: {rollout_time:.4f}, train_time: {training_time:.4f})"
         print(log)
 
         if save and epoch % save_interval == 0:
@@ -55,8 +56,14 @@ def watch(env, epoch):
 
         changed = False
 
-        act, logp, next_opt, optval, val, termprob = trainer.model.step(obs, opt, i)
+        act, logp, next_opt, optval, val, termprob, term, optdist, no = trainer.model.step(obs, opt, i)
         next_obs, rew, done, terminated, info = trainer.env.step(act)
+
+        print(optdist, no, next_opt, val*1000)
+        # time.sleep(0.2)
+
+        if term:
+            print("term")
 
         if next_opt != opt:
             changed = True
@@ -73,5 +80,5 @@ def watch(env, epoch):
     
 
 
-# watch("CartPole-v1", 700)
+# watch("CartPole-v1", "current_checkpoint")
 train("CartPole-v1", load=False, save=False, asynchronous=False)
