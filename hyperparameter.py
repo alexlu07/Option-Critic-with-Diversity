@@ -34,19 +34,29 @@ def objective(trial):
     config.opt_arch = opt_arch
     config.num_options = num_options
 
+    config.train_device = "cuda"
+
     trainer = Trainer(config)
+
+    rets = []
 
     for i in range(150):
         epoch, pi_loss, vf_loss, term_loss, ep_len, ep_ret, ep_opt, rollout_time, training_time, eps = trainer.train_one_epoch()
 
         ep_ret = sum(ep_ret)/len(ep_ret)
+        rets.append(ep_ret)
         print(ep_ret, i)
 
         trial.report(ep_ret, i)
-        if trial.should_prune():
+        if i != 0 and i % 10 == 0 and trial.should_prune():
             raise optuna.TrialPruned()
         
-    return ep_ret
+    rets.sort(reverse=True)
+    return sum(rets[:5]) / 5 # top 5 avg
 
-study = optuna.create_study(direction="maximize")
+study = optuna.create_study(study_name="study", sampler=optuna.samplers.TPESampler(), 
+                            pruner=optuna.pruners.HyperbandPruner(), 
+                            storage="sqlite:///study.db", direction="maximize")
+
+# study = optuna.load_study(storage="sqlite:///study.db")
 study.optimize(objective, n_trials=200)
