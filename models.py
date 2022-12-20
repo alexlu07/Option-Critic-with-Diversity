@@ -6,6 +6,7 @@ from functorch import combine_state_for_ensemble, vmap
 import numpy as np
 
 from config import Config
+from env import to_tensor
 
 
 def mlp(
@@ -22,8 +23,24 @@ def mlp(
         layers += [nn.Linear(sizes[i], sizes[i + 1]), act()]
     return nn.Sequential(*layers)
 
-def conv():
-    raise NotImplementedError
+def build_feature(config):
+    return mlp(np.prod(config.obs_shape), config.extractor_arch[:-1], config.extractor_arch[-1])
+
+def build_conv(config):
+    obs_shape = config.obs_shape
+    extractor_arch = config.extractor_arch
+    layers = []
+
+    last_channels = obs_shape[0]
+    for i in extractor_arch[:-1]:
+        layers += [nn.Conv2d(last_channels, i[0], **i[1]), nn.ReLU()]
+        last_channels = i[0]
+
+    flatten_size = nn.Sequential(*layers)(to_tensor(config.env.single_observation_space.sample())).flatten().size()[0]
+    layers += [nn.Flatten(-3), nn.Linear(flatten_size, extractor_arch[-1]), nn.ReLU()]
+
+    return nn.Sequential(*layers)
+    
 
 class OptionsCritic(nn.Module):
     def __init__(self, config: Config):
@@ -31,11 +48,15 @@ class OptionsCritic(nn.Module):
 
         self.config = config
 
-        if config.feature_arch:
-            self.features = mlp(np.prod(self.config.obs_shape), config.feature_arch[:-1], config.feature_arch[-1])
+        
+        if config.extractor_arch:
+            if config.net_type == "feature": builder = build_feature
+            elif config.net_type == "conv": builder = build_conv
+
+            self.features = builder(config)
         else:
             self.features = nn.Identity()
-
+        
         self.opt_critic = mlp(config.feature_size, config.critic_arch, config.num_options) # Policy over Options
         self.termination = mlp(config.feature_size, config.term_arch, config.num_options) # Option Termination
 
@@ -59,8 +80,7 @@ class OptionsCritic(nn.Module):
 
             act, logp = self.get_action(state, opt)
 
-        return act.cpu().numpy(), logp.cpu().numpy(), opt, optval.cpu().numpy(), val.cpu().numpy(), termprob.cpu().numpy()
-        # return act.cpu().numpy(), logp.cpu().numpy(), opt, optval.cpu().numpy(), val.cpu().numpy(), termprob.cpu().numpy(), term, opt_dist, next_opt
+        return act.cpu().numpy(), logp.cpu().numpy(), opt, optval.cpu().numpy(), val.cpu().numpy(), termprob.cpu().numpy(), term.cpu().numpy()
 
     def get_state(self, obs):
         state = self.features(obs)
@@ -84,7 +104,7 @@ class OptionsCritic(nn.Module):
         return dist
 
     def compute_values(self, opt_dist, opt):
-        optval = torch.take_along_dim(opt_dist, opt.unsqueeze(-1), dim=-1).squeeze()
+        optval = torch.take_along_dim(opt_dist, opt.unsqueeze(-1), dim=-1).squeeze(-1)
         val = opt_dist.max(dim=-1)[0]
 
         return optval, val
@@ -101,7 +121,7 @@ class OptionsCritic(nn.Module):
         val = opt_dist.max(dim=-1)[0]
 
         if opt is not None:
-            optval = torch.take_along_dim(opt_dist, opt.unsqueeze(-1), dim=-1).squeeze()
+            optval = torch.take_along_dim(opt_dist, opt.unsqueeze(-1), dim=-1).squeeze(-1)
             return val, optval
 
         return val
@@ -113,7 +133,7 @@ class OptionsCritic(nn.Module):
         logp = act_dist.log_prob(act)
 
         opt_dist = self.get_option_dist(state)[1]
-        optval = torch.take_along_dim(opt_dist, opt.unsqueeze(-1), dim=-1).squeeze()
+        optval = torch.take_along_dim(opt_dist, opt.unsqueeze(-1), dim=-1).squeeze(-1)
 
         termprob = self.get_termination(state, opt)[1]
 
@@ -126,7 +146,7 @@ class OptionsCritic(nn.Module):
 
         term_dist = self.termination(state).sigmoid()
 
-        term_prob = torch.take_along_dim(term_dist, option.unsqueeze(-1), dim=-1).squeeze()
+        term_prob = torch.take_along_dim(term_dist, option.unsqueeze(-1), dim=-1).squeeze(-1)
         terminate = Bernoulli(term_prob).sample().to(bool)
 
         return terminate, term_prob

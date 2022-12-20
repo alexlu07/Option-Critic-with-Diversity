@@ -1,5 +1,9 @@
 import gymnasium as gym
+from gymnasium import spaces
 import numpy as np
+import torch
+
+from env import make_env
 
 class Config:
     def __init__(self):
@@ -8,14 +12,28 @@ class Config:
 
         self.testing = False
         
-        self.feature_arch = []
-        self.critic_arch = [64]
-        self.term_arch = [64]
-        self.opt_arch = [64]
-        self.num_options = 2
+        self.feature_arch = [32, 64]
+        # self.conv_arch = [ # Nature CNN
+        #     [32, {"kernel_size": 8, "stride": 4}],
+        #     [64, {"kernel_size": 4, "stride": 2}],
+        #     [64, {"kernel_size": 3, "stride": 1}],
+        #     512,
+        # ]
+        self.conv_arch = [
+            [16, {"kernel_size": 2}],
+            [32, {"kernel_size": 2}],
+            [64, {"kernel_size": 2}],
+            512,
+        ]
+        self.critic_arch = []
+        self.term_arch = []
+        self.opt_arch = []
+        self.num_options = 4
 
-        self.minibatch_size = 128
-        self.batch_size = 512
+        self.minibatch_size = 1024
+        self.batch_size = 1024
+
+        self.freeze_interval = None
 
         self.lr = 0.001
         self.temperature = 1.0
@@ -25,7 +43,7 @@ class Config:
         self.eps_testing = 0.05
         self.gamma = 0.99
         self.lam = 0.95
-        self.termination_reg = 0.01
+        self.termination_reg = 0.00
 
     def epsilon(self, epoch):
         if self.testing:
@@ -38,12 +56,21 @@ class Config:
     def make_env(self, env, n_envs, render_mode=None, asynchronous=False):
         self.n_envs = n_envs
 
-        self.env = gym.vector.make(env, num_envs=n_envs, render_mode=render_mode, asynchronous=asynchronous)
+        self.env, self.net_type = make_env(env, num_envs=n_envs, render_mode=render_mode, asynchronous=asynchronous)
 
-        self.obs_shape = self.env.single_observation_space.shape
+        arch_map = {
+            "feature": self.feature_arch,
+            "conv": self.conv_arch,
+        }
+        self.extractor_arch = arch_map[self.net_type]
+
+        if isinstance(self.env.single_observation_space, spaces.Box):
+            self.obs_shape = self.env.single_observation_space.shape
+        elif isinstance(self.env.single_observation_space, spaces.Discrete):
+            self.obs_shape = (1,)
         self.act_shape = self.env.single_action_space.shape
         self.act_n = self.env.single_action_space.n
 
     @property
     def feature_size(self):
-        return self.feature_arch[-1] if self.feature_arch else np.prod(self.obs_shape)
+        return self.extractor_arch[-1] if self.extractor_arch else np.prod(self.obs_shape)

@@ -91,9 +91,9 @@ class Buffer:
             U = (1 - next_termprob) * next_optval + next_termprob * next_val
             delta = self.rew[step] + self.gamma * next_non_terminal * U - self.optval[step]
             last_gae_lam = delta + self.gamma * self.lam * next_non_terminal * last_gae_lam
-            self.adv[step] = last_gae_lam
+            self.adv[step] = delta
 
-        self.returns = self.adv + self.val
+        self.ret = self.adv + self.optval
 
     def is_full(self):
         return self.idx == self.batch_size
