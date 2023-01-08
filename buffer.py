@@ -18,6 +18,8 @@ class Buffer:
         self.act_shape = config.act_shape
         self.num_options = config.num_options
 
+        self.epsilon = config.epsilon
+
         self.obs = np.zeros((self.batch_size, self.n_envs) + self.obs_shape, dtype=np.float32)
         self.rew = np.zeros((self.batch_size, self.n_envs), dtype=np.float32)
         self.dones = np.zeros((self.batch_size, self.n_envs), dtype=np.float32) # because obs is the old obs, done represents if the NEXT state is terminal
@@ -71,10 +73,20 @@ class Buffer:
 
         self.idx = 0
 
-    def compute_returns_and_advantages(self, last_optval = 0, last_val = 0, last_termprob = 0):
-        last_val = last_val.clone().cpu().numpy()
-        last_optval = last_optval.clone().cpu().numpy()
-        last_termprob = last_termprob.clone().cpu().numpy()
+    def compute_returns_and_advantages(self, model, last_obs, last_opt, epoch):
+        with torch.no_grad():
+            # Add diversity pseudo reward
+            state = model.get_state(np.append(self.obs, last_obs))
+            q_z = model.discriminator(state[1:]).gather(-1, self.opt)
+
+            eps = self.epsilon(epoch)
+            p_z = np.full(q_z.shape, eps * 1/self.num_options)
+            p_z[self.opt[1:] == self.optval[1:]] += 1-eps # NEED TO APPEND LASTOPT AND LASTOPTVAL TO SELF.OPT AND SELF.OPTVAL
+            self.rew += self.q_z - self.p_z
+
+            last_state = state[-1]
+            last_optval, last_val = model.compute_values(model.get_option_dist(last_state)[1], last_opt)
+            last_termprob = self.model.get_termination(last_state, last_opt)[1]
 
         last_gae_lam = 0
         for step in reversed(range(self.batch_size)):

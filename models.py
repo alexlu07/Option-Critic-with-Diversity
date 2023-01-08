@@ -43,6 +43,8 @@ class OptionsCritic(nn.Module):
         self.optmodel = vmap(fmodel)
         self.batch_optmodel = vmap(self.optmodel)
         self.optparams = nn.ParameterList(self.optparams)
+
+        self.discriminator = mlp(config.feature_size, config.discriminator_arch, config.num_options, output_activation=nn.Softmax)
         
     def step(self, obs, opt, epoch):
         n_opts = self.config.num_options
@@ -84,7 +86,7 @@ class OptionsCritic(nn.Module):
         return dist
 
     def compute_values(self, opt_dist, opt):
-        optval = torch.take_along_dim(opt_dist, opt.unsqueeze(-1), dim=-1).squeeze()
+        optval = opt_dist.gather(-1, opt.unsqueeze(-1)).squeeze()
         val = opt_dist.max(dim=-1)[0]
 
         return optval, val
@@ -101,7 +103,7 @@ class OptionsCritic(nn.Module):
         val = opt_dist.max(dim=-1)[0]
 
         if opt is not None:
-            optval = torch.take_along_dim(opt_dist, opt.unsqueeze(-1), dim=-1).squeeze()
+            optval = opt_dist.gather(-1, opt.unsqueeze(-1)).squeeze()
             return val, optval
 
         return val
@@ -113,11 +115,13 @@ class OptionsCritic(nn.Module):
         logp = act_dist.log_prob(act)
 
         opt_dist = self.get_option_dist(state)[1]
-        optval = torch.take_along_dim(opt_dist, opt.unsqueeze(-1), dim=-1).squeeze()
+        optval = opt_dist.gather(-1, opt.unsqueeze(-1)).squeeze()
 
         termprob = self.get_termination(state, opt)[1]
 
-        return logp, optval, termprob
+        q_z = self.discriminator(state)
+
+        return logp, optval, termprob, q_z
 
 
     def get_termination(self, state, option, obs=False):
@@ -126,7 +130,7 @@ class OptionsCritic(nn.Module):
 
         term_dist = self.termination(state).sigmoid()
 
-        term_prob = torch.take_along_dim(term_dist, option.unsqueeze(-1), dim=-1).squeeze()
+        term_prob = term_dist.gather(-1, option.unsqueeze(-1)).squeeze()
         terminate = Bernoulli(term_prob).sample().to(bool)
 
         return terminate, term_prob

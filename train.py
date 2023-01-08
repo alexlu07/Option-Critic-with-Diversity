@@ -104,12 +104,8 @@ class Trainer:
                 # get new greedy option for terminated environments
                 opt[done] = self.model.get_option_dist(self.model.get_state(obs[done]))[0]
 
-        # bootstrapping truncated environments
-        with torch.no_grad():
-            val, optval = self.model.get_value(obs, opt)
-            termprob = self.model.get_termination(obs, opt, obs=True)[1]
-
-        self.buffer.compute_returns_and_advantages(optval, val, termprob)
+        # Buffer bootstraps truncated episodes for you
+        self.buffer.compute_returns_and_advantages(self.model, obs, opt, self.epoch) # need to validate is epoch is actually right not offset
 
         self.obs = obs
         self.opt = opt

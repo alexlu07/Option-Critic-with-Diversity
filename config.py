@@ -12,6 +12,7 @@ class Config:
         self.critic_arch = [64]
         self.term_arch = [64]
         self.opt_arch = [64]
+        self.discriminator_arch = [64]
         self.num_options = 2
 
         self.minibatch_size = 128
