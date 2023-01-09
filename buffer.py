@@ -73,39 +73,35 @@ class Buffer:
 
         self.idx = 0
 
-    def compute_returns_and_advantages(self, model, last_obs, last_opt, epoch):
+    def compute_returns_and_advantages(self, model, epoch, last_obs, last_optval, last_val, last_termprob):
+        obs = np.append(self.obs, last_obs)
+        optval = np.append(self.optval, last_optval)
+        val = np.append(self.val, last_val)
+        termprob = np.append(self.termprob, last_termprob)
         with torch.no_grad():
             # Add diversity pseudo reward
-            state = model.get_state(np.append(self.obs, last_obs))
+            state = model.get_state(obs)
             q_z = model.discriminator(state[1:]).gather(-1, self.opt)
 
             eps = self.epsilon(epoch)
             p_z = np.full(q_z.shape, eps * 1/self.num_options)
-            p_z[self.opt[1:] == self.optval[1:]] += 1-eps # NEED TO APPEND LASTOPT AND LASTOPTVAL TO SELF.OPT AND SELF.OPTVAL
+            p_z[val[1:] == optval[1:]] += 1-eps
             self.rew += self.q_z - self.p_z
-
-            last_state = state[-1]
-            last_optval, last_val = model.compute_values(model.get_option_dist(last_state)[1], last_opt)
-            last_termprob = self.model.get_termination(last_state, last_opt)[1]
 
         last_gae_lam = 0
         for step in reversed(range(self.batch_size)):
             next_non_terminal = 1.0 - self.dones[step] # done[t], because done represents for next state already
-            if step == self.batch_size - 1:
-                next_val = last_val
-                next_optval = last_optval
-                next_termprob = last_termprob
-            else:
-                next_val = self.val[step+1]
-                next_optval = self.optval[step+1]
-                next_termprob = self.termprob[step+1]
+
+            next_val = val[step+1]
+            next_optval = optval[step+1]
+            next_termprob = termprob[step+1]
 
             U = (1 - next_termprob) * next_optval + next_termprob * next_val
             delta = self.rew[step] + self.gamma * next_non_terminal * U - self.optval[step]
             last_gae_lam = delta + self.gamma * self.lam * next_non_terminal * last_gae_lam
             self.adv[step] = last_gae_lam
 
-        self.returns = self.adv + self.val
+        self.ret = self.adv + self.optval
 
     def is_full(self):
         return self.idx == self.batch_size
