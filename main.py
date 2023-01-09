@@ -22,7 +22,7 @@ def train(env, save=True, load=True, epoch=None, save_interval=10, n_envs=1, asy
 
     rets_counter = 0
     while True:
-        epoch, pi_loss, vf_loss, term_loss, ep_len, ep_ret, opt_usage, opt_probs, rollout_time, training_time, eps = trainer.train_one_epoch()
+        epoch, pi_loss, vf_loss, term_loss, disc_loss, ep_len, ep_ret, opt_usage, opt_probs, rollout_time, training_time, eps = trainer.train_one_epoch()
         for i in ep_ret:
             writer.add_scalar("ep_rets", i, rets_counter)
             rets_counter += 1
@@ -45,6 +45,7 @@ def train(env, save=True, load=True, epoch=None, save_interval=10, n_envs=1, asy
         writer.add_scalar("pi_loss", pi_loss, epoch)
         writer.add_scalar("vf_loss", vf_loss, epoch)
         writer.add_scalar("term_loss", term_loss, epoch)
+        writer.add_scalar("disc_loss", disc_loss, epoch)
 
         opt_usage = np.cumsum(opt_usage)
         opt_probs = np.cumsum(opt_probs)
@@ -101,5 +102,5 @@ def watch(env, epoch):
 
 # watch("CartPole-v1", "current_checkpoint")
 # train("MiniGrid-FourRooms-v0", n_envs=1, load=False, save=False, asynchronous=False)
-train("fourrooms", n_envs=1, load=False, save=False, asynchronous=False)
-# train("CartPole-v1", n_envs=1, load=False, save=False, asynchronous=False)
+# train("fourrooms", n_envs=1, load=False, save=False, asynchronous=False)
+train("CartPole-v1", n_envs=1, load=False, save=False, asynchronous=False)

@@ -1,4 +1,5 @@
 from config import Config
+from env import to_tensor
 
 import torch
 import numpy as np
@@ -9,6 +10,7 @@ class Buffer:
         self.minibatch_size = config.minibatch_size
         self.n_envs = config.n_envs
 
+        self.rollout_device = config.rollout_device
         self.train_device = config.train_device
 
         self.gamma = config.gamma
@@ -74,19 +76,21 @@ class Buffer:
         self.idx = 0
 
     def compute_returns_and_advantages(self, model, epoch, last_obs, last_optval, last_val, last_termprob):
-        obs = np.append(self.obs, last_obs)
-        optval = np.append(self.optval, last_optval)
-        val = np.append(self.val, last_val)
-        termprob = np.append(self.termprob, last_termprob)
+        obs = to_tensor(np.append(self.obs, last_obs[None], axis=0), device=self.rollout_device)
+        optval = np.append(self.optval, last_optval[None], axis=0)
+        val = np.append(self.val, last_val[None], axis=0)
+        termprob = np.append(self.termprob, last_termprob[None], axis=0)
         with torch.no_grad():
             # Add diversity pseudo reward
             state = model.get_state(obs)
-            q_z = model.discriminator(state[1:]).gather(-1, self.opt)
-
+            q_z = model.discriminator(state[1:]).cpu()
+            q_z = q_z.gather(-1, to_tensor(self.opt, dtype=torch.int64).unsqueeze(-1)).squeeze(-1).numpy()
+            
             eps = self.epsilon(epoch)
             p_z = np.full(q_z.shape, eps * 1/self.num_options)
             p_z[val[1:] == optval[1:]] += 1-eps
-            self.rew += self.q_z - self.p_z
+            
+            self.rew += np.log(q_z) - np.log(p_z)
 
         last_gae_lam = 0
         for step in reversed(range(self.batch_size)):

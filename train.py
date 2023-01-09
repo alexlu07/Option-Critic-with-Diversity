@@ -30,6 +30,8 @@ class Trainer:
 
         self.optimizer = Adam(self.model.parameters(), lr=self.config.lr)
         self.buffer = Buffer(self.config)
+
+        self.cross_entropy_loss = torch.nn.CrossEntropyLoss()
         
         self.epoch = 0
         
@@ -61,7 +63,7 @@ class Trainer:
         self.update_prime()
 
         loss_logs = np.array(loss_logs)
-        actor_loss, critic_loss, termination_loss = loss_logs.mean(0)
+        actor_loss, critic_loss, termination_loss, discriminator_loss = loss_logs.mean(0)
 
         ep_len = [j for i in self.ep_len for j in i[:-1]]
         ep_ret = [j for i in self.ep_ret for j in i[:-1]]
@@ -73,7 +75,7 @@ class Trainer:
         self.opt_usage = [i[-1:] for i in self.opt_usage]
         self.opt_probs = [i[-1:] for i in self.opt_probs]
 
-        return self.epoch, actor_loss, critic_loss, termination_loss, ep_len, ep_ret, opt_usage, opt_probs, rollout_time, training_time, self.config.epsilon(self.epoch)
+        return self.epoch, actor_loss, critic_loss, termination_loss, discriminator_loss, ep_len, ep_ret, opt_usage, opt_probs, rollout_time, training_time, self.config.epsilon(self.epoch)
 
     def collect_rollout(self):
         obs = self.obs
@@ -147,15 +149,16 @@ class Trainer:
         optval_old = data["optval"]
         val_old = data["val"]
         
-        logp, optval, termprob = self.model.evaluate(obs, act, opt)
+        logp, optval, termprob, q_z = self.model.evaluate(obs, act, opt)
 
         policy_loss = (-logp * adv).mean()
         critic_loss = F.mse_loss(ret, optval)
         termination_loss = (termprob * (optval_old - val_old + self.config.termination_reg) * mask).mean()
+        discriminator_loss = self.cross_entropy_loss(q_z, to_tensor(opt, device=self.config.train_device, dtype=torch.int64))
 
-        loss = policy_loss + critic_loss + termination_loss
+        loss = policy_loss + critic_loss + termination_loss + discriminator_loss
 
-        return loss, (policy_loss.cpu().item(), critic_loss.cpu().item(), termination_loss.cpu().item())
+        return loss, (policy_loss.cpu().item(), critic_loss.cpu().item(), termination_loss.cpu().item(), discriminator_loss.cpu().item())
 
     def update_prime(self):
         if self.config.freeze_interval and self.epoch % self.config.freeze_interval == 0:

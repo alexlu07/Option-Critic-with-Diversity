@@ -3,8 +3,8 @@ import torch
 import numpy as np
 from fourrooms import Fourrooms
 
-def to_tensor(arr, device="cpu"):
-    return torch.as_tensor(arr, dtype=torch.float32).to(device)
+def to_tensor(arr, device="cpu", dtype=torch.float32):
+    return torch.as_tensor(arr, dtype=dtype).to(device)
 
 def transpose(arr):
     return np.moveaxis(arr, -1, -3)

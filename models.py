@@ -65,7 +65,7 @@ class OptionsCritic(nn.Module):
         self.batch_optmodel = vmap(self.optmodel)
         self.optparams = nn.ParameterList(self.optparams)
 
-        self.discriminator = mlp(config.feature_size, config.discriminator_arch, config.num_options, output_activation=nn.Softmax)
+        self.discriminator = mlp(config.feature_size, config.discriminator_arch, config.num_options, output_activation=lambda: nn.Softmax(dim=-1))
         
     def step(self, obs, opt, epoch):
         n_opts = self.config.num_options
