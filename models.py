@@ -77,6 +77,7 @@ class OptionsCritic(nn.Module):
 
             next_opt = torch.where(torch.rand(n_envs) < self.config.epsilon(epoch), torch.randint(n_opts, size=(n_envs,)), greedy_opt)
             opt = torch.where(term, next_opt, opt)
+            # opt.fill_(0)
 
             optval, val = self.compute_values(opt_dist, opt)
 
@@ -113,7 +114,9 @@ class OptionsCritic(nn.Module):
 
     def get_option_dist(self, state):
         opt_dist = self.opt_critic(state)
-        greedy_opt = opt_dist.argmax(dim=-1)
+
+        # greedy_opt = opt_dist.argmax(dim=-1)
+        greedy_opt = Categorical((opt_dist/2).softmax(-1)).sample()
         return greedy_opt, opt_dist
     
     def get_value(self, obs, opt=None):
@@ -139,9 +142,7 @@ class OptionsCritic(nn.Module):
 
         termprob = self.get_termination(state, opt)[1]
 
-        q_z = self.discriminator(state)
-
-        return logp, optval, termprob, q_z
+        return logp, optval, termprob
 
 
     def get_termination(self, state, option, obs=False):
@@ -151,6 +152,9 @@ class OptionsCritic(nn.Module):
         term_dist = self.termination(state).sigmoid()
 
         term_prob = term_dist.gather(-1, option.unsqueeze(-1)).squeeze(-1)
+        term_prob = term_prob * 0.9 + 0.05 # clamp between 0.05 and 0.95
+        # term_prob.fill_(0.2)
+        # print(term_prob)
         terminate = Bernoulli(term_prob).sample().to(bool)
 
         return terminate, term_prob

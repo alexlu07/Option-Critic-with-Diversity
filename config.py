@@ -44,7 +44,8 @@ class Config:
         self.eps_testing = 0.05
         self.gamma = 0.99
         self.lam = 0.95
-        self.termination_reg = 0.00
+        self.termination_reg = 0.0005
+        # self.termination_reg = 0.000001
 
     def epsilon(self, epoch):
         if self.testing:

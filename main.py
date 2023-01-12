@@ -2,12 +2,13 @@ import gymnasium as gym
 import torch
 from torch.utils.tensorboard import SummaryWriter
 import numpy as np
+from collections import deque
 from config import Config
 import time
 
 from train import Trainer
 
-def train(env, save=True, load=True, epoch=None, save_interval=10, n_envs=1, asynchronous = False):
+def train(env, save=True, load=True, epoch=None, save_interval=100, n_envs=1, asynchronous = False):
     config = Config()
     config.make_env(env, n_envs, asynchronous=asynchronous)
 
@@ -20,11 +21,13 @@ def train(env, save=True, load=True, epoch=None, save_interval=10, n_envs=1, asy
         else:
             trainer.load_state("current_checkpoint")
 
+    rets_deque = deque(maxlen=150)
     rets_counter = 0
     while True:
-        epoch, pi_loss, vf_loss, term_loss, disc_loss, ep_len, ep_ret, opt_usage, opt_probs, rollout_time, training_time, eps = trainer.train_one_epoch()
+        epoch, pi_loss, vf_loss, term_loss, disc_loss, ep_len, ep_ret, opt_usage, opt_probs, termprobs, rollout_time, training_time, eps = trainer.train_one_epoch()
         for i in ep_ret:
-            writer.add_scalar("ep_rets", i, rets_counter)
+            rets_deque.append(i)
+            writer.add_scalar("ep_rets", sum(rets_deque) / len(rets_deque), rets_counter)
             rets_counter += 1
 
         ep_len = sum(ep_len)/len(ep_len)
@@ -45,6 +48,8 @@ def train(env, save=True, load=True, epoch=None, save_interval=10, n_envs=1, asy
         writer.add_scalar("pi_loss", pi_loss, epoch)
         writer.add_scalar("vf_loss", vf_loss, epoch)
         writer.add_scalar("term_loss", term_loss, epoch)
+        writer.add_scalar("term_probs", termprobs.mean(), epoch)
+        writer.add_scalar("term_std", termprobs.std(), epoch)
         writer.add_scalar("disc_loss", disc_loss, epoch)
 
         opt_usage = np.cumsum(opt_usage)
@@ -52,8 +57,8 @@ def train(env, save=True, load=True, epoch=None, save_interval=10, n_envs=1, asy
         writer.add_scalars("opt_usage", {str(i): x for i, x in enumerate(opt_usage)}, epoch)
         writer.add_scalars("opt_probs", {str(i): x for i, x in enumerate(opt_probs)}, epoch)
 
-        # if save and epoch % save_interval == 0:
-        #     trainer.save_state(save_interval)
+        if save and epoch % save_interval == 0:
+            trainer.save_state(save_interval)
 
 def watch(env, epoch):
     config = Config()
@@ -76,10 +81,10 @@ def watch(env, epoch):
 
         changed = False
 
-        act, logp, next_opt, optval, val, termprob, term, optdist, no = trainer.model.step(obs, opt, i)
+        act, logp, next_opt, optval, val, termprob, term = trainer.model.step(obs, opt, i)
         next_obs, rew, done, terminated, info = trainer.env.step(act)
 
-        print(optdist, no, next_opt, val*1000)
+        # print(optdist, no, next_opt, val*1000)
         # time.sleep(0.2)
 
         if term:
@@ -100,7 +105,7 @@ def watch(env, epoch):
     
 
 
-# watch("CartPole-v1", "current_checkpoint")
+# watch("CartPole-v1", "300")
 # train("MiniGrid-FourRooms-v0", n_envs=1, load=False, save=False, asynchronous=False)
 # train("fourrooms", n_envs=1, load=False, save=False, asynchronous=False)
-train("CartPole-v1", n_envs=1, load=False, save=False, asynchronous=False)
+train("CartPole-v0", n_envs=1, load=False, save=True, asynchronous=False)

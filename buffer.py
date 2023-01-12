@@ -1,5 +1,7 @@
 from config import Config
 from env import to_tensor
+from collections import Counter
+import math
 
 import torch
 import numpy as np
@@ -65,13 +67,24 @@ class Buffer:
         }
 
         data = {key: self.swap_and_flatten(data[key]) for key in data}
+        
+        num_disc = Counter(data["opt"])
+        for i in range(self.num_options):
+            num_disc[i] += 0
+        num_disc = num_disc.most_common()[-1][1]
+            
+        disc_indices = np.concatenate([np.random.choice(np.where(data["opt"] == i)[0], size=num_disc) for i in range(self.num_options)])
+        disc_indices = np.random.permutation(disc_indices)
 
         indices = np.random.permutation(self.batch_size * self.n_envs)
 
-        i = 0
-        while i < self.batch_size * self.n_envs:
-            yield {key: torch.as_tensor(data[key][indices[i: i + self.minibatch_size]], dtype=torch.float32).to(self.train_device) for key in data}
-            i += self.minibatch_size
+        num_batches = math.ceil(self.batch_size * self.n_envs / self.minibatch_size)
+        disc_batch_size = math.ceil(len(disc_indices) / num_batches)
+
+        for i in range(num_batches):
+            minibatch = {key: torch.as_tensor(data[key][indices[i*self.minibatch_size: (i+1) * self.minibatch_size]], dtype=torch.float32).to(self.train_device) for key in data}
+            disc_minibatch = {key: torch.as_tensor(data[key][disc_indices[i*disc_batch_size: (i+1) * disc_batch_size]], dtype=torch.float32).to(self.train_device) for key in ("opt", "obs")}
+            yield minibatch, disc_minibatch
 
         self.idx = 0
 
@@ -86,13 +99,19 @@ class Buffer:
             q_z = model.discriminator(state[1:]).cpu()
             q_z = q_z.gather(-1, to_tensor(self.opt, dtype=torch.int64).unsqueeze(-1)).squeeze(-1).numpy()
             
-            eps = self.epsilon(epoch)
-            p_z = np.full(q_z.shape, eps * 1/self.num_options)
-            p_z[val[1:] == optval[1:]] += 1-eps
-            
-            self.rew += np.log(q_z) - np.log(p_z)
+            # eps = self.epsilon(epoch)
+            # p_z = np.full(q_z.shape, eps * 1/self.num_options)
+            # p_z[val[1:] == optval[1:]] += 1-eps
+            p_z = np.full(q_z.shape, 1/self.num_options)
+
+            pseudo = np.log(q_z) - np.log(p_z)
+            # pseudo *= torch.sigmoid(torch.tensor((-epoch + 200)/100)).numpy()
+
+            # self.rew += np.log(q_z) - np.log(p_z)
+            # self.rew += np.log(q_z)
 
         last_gae_lam = 0
+        last_gae_lam_ret = 0
         for step in reversed(range(self.batch_size)):
             next_non_terminal = 1.0 - self.dones[step] # done[t], because done represents for next state already
 
@@ -101,11 +120,15 @@ class Buffer:
             next_termprob = termprob[step+1]
 
             U = (1 - next_termprob) * next_optval + next_termprob * next_val
-            delta = self.rew[step] + self.gamma * next_non_terminal * U - self.optval[step]
+            delta = 1 * self.rew[step] + pseudo[step] + self.gamma * next_non_terminal * U - self.optval[step]
+            delta_ret = self.rew[step] + self.gamma * next_non_terminal * U - self.optval[step]
             last_gae_lam = delta + self.gamma * self.lam * next_non_terminal * last_gae_lam
+            last_gae_lam_ret = delta_ret + self.gamma * self.lam * next_non_terminal * last_gae_lam_ret
             self.adv[step] = last_gae_lam
+            self.ret[step] = last_gae_lam_ret
 
-        self.ret = self.adv + self.optval
+        # self.ret = self.adv + self.optval
+        self.ret += self.optval
 
     def is_full(self):
         return self.idx == self.batch_size

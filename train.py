@@ -49,9 +49,10 @@ class Trainer:
 
         loss_logs = []
 
-        for data in self.buffer.get():
+        termprobs = self.buffer.termprob.flatten()
+        for data, disc_data in self.buffer.get():
             self.optimizer.zero_grad()
-            loss, logs = self.get_loss(data)
+            loss, logs = self.get_loss(data, disc_data)
             loss_logs.append(logs)
             loss.backward()
             self.optimizer.step()
@@ -75,7 +76,7 @@ class Trainer:
         self.opt_usage = [i[-1:] for i in self.opt_usage]
         self.opt_probs = [i[-1:] for i in self.opt_probs]
 
-        return self.epoch, actor_loss, critic_loss, termination_loss, discriminator_loss, ep_len, ep_ret, opt_usage, opt_probs, rollout_time, training_time, self.config.epsilon(self.epoch)
+        return self.epoch, actor_loss, critic_loss, termination_loss, discriminator_loss, ep_len, ep_ret, opt_usage, opt_probs, termprobs, rollout_time, training_time, self.config.epsilon(self.epoch)
 
     def collect_rollout(self):
         obs = self.obs
@@ -139,7 +140,7 @@ class Trainer:
         self.obs = obs
         self.opt = opt
 
-    def get_loss(self, data):
+    def get_loss(self, data, disc_data):
         obs = data["obs"]
         mask = 1 - data["dones"]
         act = data["act"]
@@ -148,13 +149,17 @@ class Trainer:
         adv = data["adv"]
         optval_old = data["optval"]
         val_old = data["val"]
+
+        disc_obs = disc_data["obs"]
+        disc_opt = disc_data["opt"].to(torch.int64)
         
-        logp, optval, termprob, q_z = self.model.evaluate(obs, act, opt)
+        logp, optval, termprob = self.model.evaluate(obs, act, opt)
+        q_z = self.model.discriminator(self.model.get_state(disc_obs))
 
         policy_loss = (-logp * adv).mean()
         critic_loss = F.mse_loss(ret, optval)
         termination_loss = (termprob * (optval_old - val_old + self.config.termination_reg) * mask).mean()
-        discriminator_loss = self.cross_entropy_loss(q_z, to_tensor(opt, device=self.config.train_device, dtype=torch.int64))
+        discriminator_loss = self.cross_entropy_loss(q_z, disc_opt)
 
         loss = policy_loss + critic_loss + termination_loss + discriminator_loss
 
