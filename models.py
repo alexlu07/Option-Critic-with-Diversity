@@ -77,7 +77,7 @@ class OptionsCritic(nn.Module):
 
             next_opt = torch.where(torch.rand(n_envs) < self.config.epsilon(epoch), torch.randint(n_opts, size=(n_envs,)), greedy_opt)
             opt = torch.where(term, next_opt, opt)
-            # opt.fill_(0)
+            opt.fill_(1)
 
             optval, val = self.compute_values(opt_dist, opt)
 
@@ -116,7 +116,7 @@ class OptionsCritic(nn.Module):
         opt_dist = self.opt_critic(state)
 
         # greedy_opt = opt_dist.argmax(dim=-1)
-        greedy_opt = Categorical((opt_dist/2).softmax(-1)).sample()
+        greedy_opt = Categorical((opt_dist/1).softmax(-1)).sample()
         return greedy_opt, opt_dist
     
     def get_value(self, obs, opt=None):

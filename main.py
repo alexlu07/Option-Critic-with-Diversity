@@ -73,6 +73,8 @@ def watch(env, epoch):
     obs = trainer.obs
     opt = trainer.opt
 
+    time.sleep(3)
+
     for i in range(2048):
         trainer.env.call("render")
 
@@ -105,7 +107,7 @@ def watch(env, epoch):
     
 
 
-# watch("CartPole-v1", "300")
+watch("CartPole-v1", "oc200/300")
 # train("MiniGrid-FourRooms-v0", n_envs=1, load=False, save=False, asynchronous=False)
 # train("fourrooms", n_envs=1, load=False, save=False, asynchronous=False)
-train("CartPole-v0", n_envs=1, load=False, save=True, asynchronous=False)
+# train("CartPole-v0", n_envs=1, load=False, save=True, asynchronous=False)
