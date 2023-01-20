@@ -116,7 +116,7 @@ class OptionsCritic(nn.Module):
         opt_dist = self.opt_critic(state)
 
         # greedy_opt = opt_dist.argmax(dim=-1)
-        greedy_opt = Categorical((opt_dist/1).softmax(-1)).sample()
+        greedy_opt = Categorical(opt_dist.softmax(-1)).sample()
         return greedy_opt, opt_dist
     
     def get_value(self, obs, opt=None):
@@ -142,7 +142,7 @@ class OptionsCritic(nn.Module):
 
         termprob = self.get_termination(state, opt)[1]
 
-        return logp, optval, termprob
+        return logp, optval, termprob, act_dist.entropy(), Categorical(opt_dist.softmax(-1)).entropy()
 
 
     def get_termination(self, state, option, obs=False):

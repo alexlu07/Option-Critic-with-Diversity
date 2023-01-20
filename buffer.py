@@ -95,23 +95,38 @@ class Buffer:
         termprob = np.append(self.termprob, last_termprob[None], axis=0)
         with torch.no_grad():
             # Add diversity pseudo reward
-            state = model.get_state(obs)
-            q_z = model.discriminator(state[1:]).cpu()
-            q_z = q_z.gather(-1, to_tensor(self.opt, dtype=torch.int64).unsqueeze(-1)).squeeze(-1).numpy()
+
+            # Discriminator psuedo reward (wrong)
+            # state = model.get_state(obs)
+            # q_z = model.discriminator(state[1:]).cpu()
+            # q_z = q_z.gather(-1, to_tensor(self.opt, dtype=torch.int64).unsqueeze(-1)).squeeze(-1).numpy()
             
+            # p_z calc (wrong bc its p(z), not p(z|s))
+            # Eps-greedy p_z calc (wrong)
             # eps = self.epsilon(epoch)
             # p_z = np.full(q_z.shape, eps * 1/self.num_options)
             # p_z[val[1:] == optval[1:]] += 1-eps
-            p_z = np.full(q_z.shape, 1/self.num_options)
+            # Uniform p_z calc (also very wrong)
+            # p_z = np.full(q_z.shape, 1/self.num_options)
 
-            pseudo = np.log(q_z) - np.log(p_z)
+            # pseudo = np.log(q_z) - np.log(p_z) # wrong
             # pseudo *= torch.sigmoid(torch.tensor((-epoch + 200)/100)).numpy()
+
+            # p_z calc from history (kinda right? cuz not based on state anymore)
+            count = Counter(self.opt)
+            p_z = np.zeros(self.num_options)
+            for i in range(self.num_options):
+                p_z[i] = count[i]
+
+            p_z /= count.total()
+
+            pseudo = -np.log(p_z[self.opt])
 
             # self.rew += np.log(q_z) - np.log(p_z)
             # self.rew += np.log(q_z)
 
         last_gae_lam = 0
-        last_gae_lam_ret = 0
+        # last_gae_lam_ret = 0
         for step in reversed(range(self.batch_size)):
             next_non_terminal = 1.0 - self.dones[step] # done[t], because done represents for next state already
 
@@ -121,11 +136,12 @@ class Buffer:
 
             U = (1 - next_termprob) * next_optval + next_termprob * next_val
             delta = 1 * self.rew[step] + pseudo[step] + self.gamma * next_non_terminal * U - self.optval[step]
-            delta_ret = self.rew[step] + self.gamma * next_non_terminal * U - self.optval[step]
+            # delta_ret = self.rew[step] + self.gamma * next_non_terminal * U - self.optval[step]
             last_gae_lam = delta + self.gamma * self.lam * next_non_terminal * last_gae_lam
-            last_gae_lam_ret = delta_ret + self.gamma * self.lam * next_non_terminal * last_gae_lam_ret
+            # last_gae_lam_ret = delta_ret + self.gamma * self.lam * next_non_terminal * last_gae_lam_ret
             self.adv[step] = last_gae_lam
-            self.ret[step] = last_gae_lam_ret
+            # self.ret[step] = last_gae_lam_ret
+            self.ret[step] = last_gae_lam
 
         # self.ret = self.adv + self.optval
         self.ret += self.optval

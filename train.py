@@ -153,15 +153,18 @@ class Trainer:
         disc_obs = disc_data["obs"]
         disc_opt = disc_data["opt"].to(torch.int64)
         
-        logp, optval, termprob = self.model.evaluate(obs, act, opt)
+        logp, optval, termprob, act_entropy, opt_entropy = self.model.evaluate(obs, act, opt)
         q_z = self.model.discriminator(self.model.get_state(disc_obs))
 
         policy_loss = (-logp * adv).mean()
         critic_loss = F.mse_loss(ret, optval)
         termination_loss = (termprob * (optval_old - val_old + self.config.termination_reg) * mask).mean()
+
+        entropy_loss = act_entropy.mean() -  opt_entropy.mean()
+
         discriminator_loss = self.cross_entropy_loss(q_z, disc_opt)
 
-        loss = policy_loss + critic_loss + termination_loss + discriminator_loss
+        loss = policy_loss + critic_loss + termination_loss + discriminator_loss + 0.5 * entropy_loss
 
         return loss, (policy_loss.cpu().item(), critic_loss.cpu().item(), termination_loss.cpu().item(), discriminator_loss.cpu().item())
 
