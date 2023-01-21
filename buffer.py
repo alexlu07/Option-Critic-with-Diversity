@@ -113,14 +113,15 @@ class Buffer:
             # pseudo *= torch.sigmoid(torch.tensor((-epoch + 200)/100)).numpy()
 
             # p_z calc from history (kinda right? cuz not based on state anymore)
-            count = Counter(self.opt)
+            count = Counter(self.opt.flatten())
             p_z = np.zeros(self.num_options)
             for i in range(self.num_options):
                 p_z[i] = count[i]
 
-            p_z /= count.total()
+            p_z /= self.opt.size
 
-            pseudo = -np.log(p_z[self.opt])
+            pseudo = -np.log(p_z[self.opt.astype(np.int64, copy=False)]) * 10
+            # print(pseudo)
 
             # self.rew += np.log(q_z) - np.log(p_z)
             # self.rew += np.log(q_z)

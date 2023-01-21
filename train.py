@@ -160,11 +160,11 @@ class Trainer:
         critic_loss = F.mse_loss(ret, optval)
         termination_loss = (termprob * (optval_old - val_old + self.config.termination_reg) * mask).mean()
 
-        entropy_loss = act_entropy.mean() -  opt_entropy.mean()
+        entropy_loss = act_entropy.mean() - opt_entropy.mean()
 
         discriminator_loss = self.cross_entropy_loss(q_z, disc_opt)
 
-        loss = policy_loss + critic_loss + termination_loss + discriminator_loss + 0.5 * entropy_loss
+        loss = policy_loss + critic_loss + termination_loss + discriminator_loss + 0.1 * entropy_loss
 
         return loss, (policy_loss.cpu().item(), critic_loss.cpu().item(), termination_loss.cpu().item(), discriminator_loss.cpu().item())
 
