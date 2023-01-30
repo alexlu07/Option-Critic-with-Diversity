@@ -96,11 +96,16 @@ class Buffer:
         with torch.no_grad():
             # Add diversity pseudo reward
 
-            # Discriminator psuedo reward (wrong)
-            # state = model.get_state(obs)
-            # q_z = model.discriminator(state[1:]).cpu()
-            # q_z = q_z.gather(-1, to_tensor(self.opt, dtype=torch.int64).unsqueeze(-1)).squeeze(-1).numpy()
+            # Discriminator psuedo reward
+            state = model.get_state(obs)
+            q_z = model.discriminator(state[1:]).cpu()
+            q_z = q_z.gather(-1, to_tensor(self.opt, dtype=torch.int64).unsqueeze(-1)).squeeze(-1).numpy()
             
+            # master based pseudo reward
+            # state = model.get_state(obs)
+            # q_z = model.opt_critic(state[:-1]).cpu().softmax(-1)
+            # q_z = q_z.gather(-1, to_tensor(self.opt, dtype=torch.int64).unsqueeze(-1)).squeeze(-1).numpy()
+
             # p_z calc (wrong bc its p(z), not p(z|s))
             # Eps-greedy p_z calc (wrong)
             # eps = self.epsilon(epoch)
@@ -119,15 +124,17 @@ class Buffer:
                 p_z[i] = count[i]
 
             p_z /= self.opt.size
+            p_z = p_z[self.opt.astype(np.int64, copy=False)]
 
-            pseudo = -np.log(p_z[self.opt.astype(np.int64, copy=False)]) * 10
+            pseudo = np.log(q_z) -np.log(p_z)
+            # pseudo = -np.log(p_z) * 10 - 2
             # print(pseudo)
 
             # self.rew += np.log(q_z) - np.log(p_z)
             # self.rew += np.log(q_z)
 
         last_gae_lam = 0
-        # last_gae_lam_ret = 0
+        last_gae_lam_ret = 0
         for step in reversed(range(self.batch_size)):
             next_non_terminal = 1.0 - self.dones[step] # done[t], because done represents for next state already
 
@@ -136,16 +143,26 @@ class Buffer:
             next_termprob = termprob[step+1]
 
             U = (1 - next_termprob) * next_optval + next_termprob * next_val
-            delta = 1 * self.rew[step] + pseudo[step] + self.gamma * next_non_terminal * U - self.optval[step]
-            # delta_ret = self.rew[step] + self.gamma * next_non_terminal * U - self.optval[step]
+            delta = 1 * self.rew[step] + self.gamma * next_non_terminal * U - self.optval[step]
+            delta_ret = 1 * self.rew[step] + self.gamma * next_non_terminal * U - self.optval[step]
             last_gae_lam = delta + self.gamma * self.lam * next_non_terminal * last_gae_lam
-            # last_gae_lam_ret = delta_ret + self.gamma * self.lam * next_non_terminal * last_gae_lam_ret
+            last_gae_lam_ret = delta_ret + self.gamma * self.lam * next_non_terminal * last_gae_lam_ret
             self.adv[step] = last_gae_lam
-            # self.ret[step] = last_gae_lam_ret
-            self.ret[step] = last_gae_lam
+            self.ret[step] = last_gae_lam_ret
+            # self.ret[step] = last_gae_lam
+
+        self.adv += pseudo / pseudo.max() * self.adv.max() / 7
+        self.ret += pseudo / pseudo.max() * self.ret.max() / 7
 
         # self.ret = self.adv + self.optval
         self.ret += self.optval
+        self.adv = (self.adv - self.adv.mean()) / self.adv.std()
+
+        # ep_end = self.dones.argmax()
+        # print(pseudo.mean())
+        # print(pseudo[:ep_end])
+        # print(self.ret[:ep_end])
+
 
     def is_full(self):
         return self.idx == self.batch_size
