@@ -67,7 +67,7 @@ class OptionsCritic(nn.Module):
 
         self.discriminator = mlp(config.feature_size, config.discriminator_arch, config.num_options, output_activation=lambda: nn.Softmax(dim=-1))
         
-    def step(self, obs, opt, epoch):
+    def step(self, obs, opt, epoch, force_opt=None):
         n_opts = self.config.num_options
         n_envs = self.config.n_envs
         with torch.no_grad():
@@ -76,8 +76,10 @@ class OptionsCritic(nn.Module):
             greedy_opt, opt_dist = self.get_option_dist(state)
 
             next_opt = torch.where(torch.rand(n_envs) < self.config.epsilon(epoch), torch.randint(n_opts, size=(n_envs,)), greedy_opt)
+            next_opt = greedy_opt
             opt = torch.where(term, next_opt, opt)
-            # opt.fill_(1)
+            if force_opt:
+                opt.fill_(force_opt)
 
             optval, val = self.compute_values(opt_dist, opt)
 

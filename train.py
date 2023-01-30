@@ -3,6 +3,7 @@ from copy import deepcopy
 import time
 import numpy as np
 import torch
+import random
 from torch.nn import functional as F
 from torch.optim import Adam
 
@@ -28,6 +29,10 @@ class Trainer:
         self.opt_usage = [[[0 for j in range(self.config.num_options)]] for i in range(self.config.n_envs)]
         self.opt_probs = [[[0 for j in range(self.config.num_options)]] for i in range(self.config.n_envs)]
 
+        # pretrain logs
+        self.opt_len = [[[0 for j in range(self.config.num_options)]] for i in range(self.config.n_envs)]
+        self.opt_ret = [[[0 for j in range(self.config.num_options)]] for i in range(self.config.n_envs)]
+
         self.optimizer = Adam(self.model.parameters(), lr=self.config.lr)
         self.buffer = Buffer(self.config)
 
@@ -35,12 +40,15 @@ class Trainer:
         
         self.epoch = 0
         
-    def train_one_epoch(self):
+    def train_one_epoch(self, pretrain=False):
         start = time.time()
 
         self.model.to(self.config.rollout_device)
 
-        self.collect_rollout()
+        if pretrain:
+            self.collect_pretrain_rollout()
+        else:
+            self.collect_rollout()
 
         rollout_time = time.time() - start
         start = time.time()
@@ -140,6 +148,46 @@ class Trainer:
         self.obs = obs
         self.opt = opt
 
+    def collect_pretrain_rollout(self):
+        obs = self.obs
+        opt = self.opt
+
+        forceopt = np.array([self.config.batch_size // self.config.num_options for i in range(self.config.num_options)])
+        for i in random.sample(range(self.config.num_options), k=self.config.batch_size % self.config.num_options):
+            forceopt[i] += 1
+        forceopt = [i for i in range(forceopt) for j in range(forceopt[i])]
+
+        step = 0
+
+        zeros = np.zeros(self.config.n_envs)
+
+        while not self.buffer.is_full():
+
+            # step
+            act, logp, opt, _, _, _, _ = self.model.step(obs, opt, self.epoch, force_opt=forceopt[step])
+            next_obs, rew, terminated, truncated, info = self.env.step(act)
+
+            done = terminated + truncated
+
+            for i in range(self.config.n_envs):
+                self.opt_len[i][-1][opt[i]] += 1
+                self.opt_ret[i][-1][opt[i]] += 1
+
+            # push step and move to next observation
+            self.buffer.push(obs, zeros, done, act, logp, opt.clone().cpu().numpy(), zeros, zeros, zeros)
+            obs = to_tensor(next_obs, self.config.rollout_device)
+
+            if np.any(done):
+                for i in range(self.config.n_envs):
+                    if done[i]:
+                        self.opt_len[i].append([0 for j in range(self.config.num_options)])
+                        self.opt_ret[i].append([0 for j in range(self.config.num_options)])
+
+        self.buffer.compute_returns_and_advantages(self.model, self.epoch, obs, 0, 0, 0) # make sure this is act the right epoch
+
+        self.obs = obs
+        self.opt = opt
+
     def get_loss(self, data, disc_data):
         obs = data["obs"]
         mask = 1 - data["dones"]
@@ -160,11 +208,11 @@ class Trainer:
         critic_loss = F.mse_loss(ret, optval)
         termination_loss = (termprob * (optval_old - val_old + self.config.termination_reg) * mask).mean()
 
-        entropy_loss = act_entropy.mean() - opt_entropy.mean()
+        entropy_loss = act_entropy.mean() - 0 * opt_entropy.mean()
 
         discriminator_loss = self.cross_entropy_loss(q_z, disc_opt)
 
-        loss = policy_loss + critic_loss + termination_loss + discriminator_loss + 0.1 * entropy_loss
+        loss = policy_loss + critic_loss + termination_loss + discriminator_loss + 0.05 * entropy_loss
 
         return loss, (policy_loss.cpu().item(), critic_loss.cpu().item(), termination_loss.cpu().item(), discriminator_loss.cpu().item())
 
