@@ -14,11 +14,12 @@ def make_env(env, num_envs, render_mode, asynchronous):
         return Fourrooms(), "feature"
 
     temp_env = gym.make(env)
+    kwargs = {}
     if isinstance(temp_env.observation_space, gym.spaces.Box):
         if len(temp_env.observation_space.shape) < 3:
             wrapper, net_type = None, "feature"
         else:
-            wrapper, net_type = TransposeWrapper, "conv"
+            wrapper, net_type = [TransposeWrapper], "conv"
 
     elif isinstance(temp_env.observation_space, gym.spaces.Dict) and "image" in temp_env.observation_space.spaces.keys():
         wrapper, net_type = MiniGridWrapper, "conv"

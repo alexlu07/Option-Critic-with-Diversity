@@ -28,7 +28,20 @@ def train(env, pretrain=False, save=True, load=True, epoch=None, save_interval=1
         config.make_env(env, n_envs, asynchronous=asynchronous)
 
         trainer = Trainer(config)
-        writer = SummaryWriter("results/tb_log")
+        writer = SummaryWriter("results/tb_log/")
+
+        layout = {
+            "Pretrain": {
+                "opt_len": ["Multiline", [f"opt_len/{i}" for i in range(config.num_options)]],
+                "opt_ret": ["Multiline", [f"opt_ret/{i}" for i in range(config.num_options)]],
+            },
+            "Training": {
+                "opt_usage": ["Multiline", [f"opt_usage/{i}" for i in range(config.num_options)]],
+                "opt_probs": ["Multiline", [f"opt_probs/{i}" for i in range(config.num_options)]],
+            },
+        }
+
+        writer.add_custom_scalars(layout)
 
         if load:
             if epoch:
@@ -39,8 +52,23 @@ def train(env, pretrain=False, save=True, load=True, epoch=None, save_interval=1
         if pretrain:
             epoch = 0
             while epoch < 300:
-                epoch, pi_loss, vf_loss, term_loss, disc_loss, ep_len, ep_ret, opt_usage, opt_probs, termprobs, rollout_time, training_time, eps = trainer.train_one_epoch(pretrain=True)
+                epoch, pi_loss, disc_loss, opt_len, opt_ret, rollout_time, training_time = trainer.train_one_epoch(pretrain=True)
 
+                opt_len = np.array(opt_len)
+                opt_ret = np.array(opt_ret)
+
+                opt_len = opt_len[np.array(opt_len).astype(bool).sum(axis=1) == 1]
+                opt_ret = opt_ret[np.array(opt_ret).astype(bool).sum(axis=1) == 1]
+
+                opt_len = opt_len.sum(axis=0)/opt_len.astype(bool).sum(axis=0)
+                opt_ret = opt_ret.sum(axis=0)/opt_ret.astype(bool).sum(axis=0)
+
+                writer.add_scalar("Pretrain/pi_loss", pi_loss, epoch)
+                writer.add_scalar("Pretrain/disc_loss", disc_loss, epoch)
+
+                for i in range(config.num_options):
+                    writer.add_scalar(f"opt_len/{i}", opt_len[i], epoch)
+                    writer.add_scalar(f"opt_ret/{i}", opt_ret[i], epoch)
 
             trainer.epoch = 0
 
@@ -51,7 +79,7 @@ def train(env, pretrain=False, save=True, load=True, epoch=None, save_interval=1
             epoch, pi_loss, vf_loss, term_loss, disc_loss, ep_len, ep_ret, opt_usage, opt_probs, termprobs, rollout_time, training_time, eps = trainer.train_one_epoch()
             for i in ep_ret:
                 rets_deque.append(i)
-                writer.add_scalar("ep_rets", sum(rets_deque) / len(rets_deque), rets_counter)
+                writer.add_scalar("Training/ep_rets", sum(rets_deque) / len(rets_deque), rets_counter)
                 if len(table["ep_rets"]) <= rets_counter:
                     table["ep_rets"].append([0 for x in range(3)])
                 table["ep_rets"][rets_counter][a] = sum(rets_deque) / len(rets_deque)
@@ -71,14 +99,14 @@ def train(env, pretrain=False, save=True, load=True, epoch=None, save_interval=1
 
             print(log)
 
-            writer.add_scalar("ep_len", ep_len, epoch)
-            writer.add_scalar("ep_ret", ep_ret, epoch)
-            writer.add_scalar("pi_loss", pi_loss, epoch)
-            writer.add_scalar("vf_loss", vf_loss, epoch)
-            writer.add_scalar("term_loss", term_loss, epoch)
-            writer.add_scalar("term_probs", termprobs.mean(), epoch)
-            writer.add_scalar("term_std", termprobs.std(), epoch)
-            writer.add_scalar("disc_loss", disc_loss, epoch)
+            writer.add_scalar("Training/ep_len", ep_len, epoch)
+            writer.add_scalar("Training/ep_ret", ep_ret, epoch)
+            writer.add_scalar("Training/pi_loss", pi_loss, epoch)
+            writer.add_scalar("Training/vf_loss", vf_loss, epoch)
+            writer.add_scalar("Training/term_loss", term_loss, epoch)
+            writer.add_scalar("Training/term_probs", termprobs.mean(), epoch)
+            writer.add_scalar("Training/term_std", termprobs.std(), epoch)
+            writer.add_scalar("Training/disc_loss", disc_loss, epoch)
 
             table["ep_len"][epoch][a] = ep_len
             table["ep_ret"][epoch][a] = ep_ret
@@ -87,8 +115,9 @@ def train(env, pretrain=False, save=True, load=True, epoch=None, save_interval=1
 
             opt_usage = np.cumsum(opt_usage)
             opt_probs = np.cumsum(opt_probs)
-            writer.add_scalars("opt_usage", {str(i): x for i, x in enumerate(opt_usage)}, epoch)
-            writer.add_scalars("opt_probs", {str(i): x for i, x in enumerate(opt_probs)}, epoch)
+            for i in range(config.num_options):
+                writer.add_scalar(f"opt_usage/{i}", opt_usage[i], epoch)
+                writer.add_scalar(f"opt_probs/{i}", opt_probs[i], epoch)
 
             for i, x in enumerate(opt_usage):
                 table["opt_usage"][epoch][a*2 + i] = x
@@ -151,7 +180,7 @@ def watch(env, epoch, force_opt=None):
     
 
 
-watch("CartPole-v1", "600")
+# watch("CartPole-v1", "600")
 # train("MiniGrid-FourRooms-v0", n_envs=1, load=False, save=False, asynchronous=False)
 # train("fourrooms", n_envs=1, load=False, save=False, asynchronous=False)
-# train("CartPole-v0", n_envs=1, load=False, save=True, asynchronous=False)
+train("CartPole-v0", n_envs=1, pretrain=False, load=False, save=True, asynchronous=False)

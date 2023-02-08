@@ -128,7 +128,6 @@ class Buffer:
 
             pseudo = np.log(q_z) -np.log(p_z)
             # pseudo = -np.log(p_z) * 10 - 2
-            # print(pseudo)
 
             # self.rew += np.log(q_z) - np.log(p_z)
             # self.rew += np.log(q_z)
@@ -151,12 +150,18 @@ class Buffer:
             self.ret[step] = last_gae_lam_ret
             # self.ret[step] = last_gae_lam
 
-        self.adv += pseudo / pseudo.max() * self.adv.max() / 7
-        self.ret += pseudo / pseudo.max() * self.ret.max() / 7
+        if self.adv.any():
+            self.adv += pseudo / pseudo.max() * self.adv.max() / 7
+            self.ret += pseudo / pseudo.max() * self.ret.max() / 7
+        else: # pretrain
+            self.adv += pseudo / pseudo.max() * 5
+            self.ret += pseudo / pseudo.max() * 5
+
 
         # self.ret = self.adv + self.optval
         self.ret += self.optval
         self.adv = (self.adv - self.adv.mean()) / self.adv.std()
+
 
         # ep_end = self.dones.argmax()
         # print(pseudo.mean())

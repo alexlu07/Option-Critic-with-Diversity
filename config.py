@@ -13,18 +13,18 @@ class Config:
         self.testing = False
         
         self.feature_arch = []
-        # self.conv_arch = [ # Nature CNN
-        #     [32, {"kernel_size": 8, "stride": 4}],
-        #     [64, {"kernel_size": 4, "stride": 2}],
-        #     [64, {"kernel_size": 3, "stride": 1}],
-        #     512,
-        # # ]
-        self.conv_arch = [
-            [16, {"kernel_size": 2}],
-            [32, {"kernel_size": 2}],
-            [64, {"kernel_size": 2}],
+        self.conv_arch = [ # Nature CNN
+            [32, {"kernel_size": 8, "stride": 4}],
+            [64, {"kernel_size": 4, "stride": 2}],
+            [64, {"kernel_size": 3, "stride": 1}],
             512,
         ]
+        # self.conv_arch = [
+        #     [16, {"kernel_size": 2}],
+        #     [32, {"kernel_size": 2}],
+        #     [64, {"kernel_size": 2}],
+        #     512,
+        # ]
         self.critic_arch = [64]
         self.term_arch = [64]
         self.opt_arch = [64]

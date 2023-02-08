@@ -60,7 +60,7 @@ class Trainer:
         termprobs = self.buffer.termprob.flatten()
         for data, disc_data in self.buffer.get():
             self.optimizer.zero_grad()
-            loss, logs = self.get_loss(data, disc_data)
+            loss, logs = self.get_loss(data, disc_data, pretrain=pretrain)
             loss_logs.append(logs)
             loss.backward()
             self.optimizer.step()
@@ -74,17 +74,27 @@ class Trainer:
         loss_logs = np.array(loss_logs)
         actor_loss, critic_loss, termination_loss, discriminator_loss = loss_logs.mean(0)
 
-        ep_len = [j for i in self.ep_len for j in i[:-1]]
-        ep_ret = [j for i in self.ep_ret for j in i[:-1]]
-        opt_usage = [j for i in self.opt_usage for j in i[:-1]]
-        opt_probs = [j for i in self.opt_probs for j in i[:-1]]
+        if pretrain:
+            opt_len = [j for i in self.opt_len for j in i[:-1]]
+            opt_ret = [j for i in self.opt_ret for j in i[:-1]]
 
-        self.ep_len = [i[-1:] for i in self.ep_len]
-        self.ep_ret = [i[-1:] for i in self.ep_ret]
-        self.opt_usage = [i[-1:] for i in self.opt_usage]
-        self.opt_probs = [i[-1:] for i in self.opt_probs]
+            self.opt_len = [i[-1:] for i in self.opt_len]
+            self.opt_ret = [i[-1:] for i in self.opt_ret]
 
-        return self.epoch, actor_loss, critic_loss, termination_loss, discriminator_loss, ep_len, ep_ret, opt_usage, opt_probs, termprobs, rollout_time, training_time, self.config.epsilon(self.epoch)
+            return self.epoch, actor_loss, discriminator_loss, opt_len, opt_ret, rollout_time, training_time
+
+        else:
+            ep_len = [j for i in self.ep_len for j in i[:-1]]
+            ep_ret = [j for i in self.ep_ret for j in i[:-1]]
+            opt_usage = [j for i in self.opt_usage for j in i[:-1]]
+            opt_probs = [j for i in self.opt_probs for j in i[:-1]]
+
+            self.ep_len = [i[-1:] for i in self.ep_len]
+            self.ep_ret = [i[-1:] for i in self.ep_ret]
+            self.opt_usage = [i[-1:] for i in self.opt_usage]
+            self.opt_probs = [i[-1:] for i in self.opt_probs]
+
+            return self.epoch, actor_loss, critic_loss, termination_loss, discriminator_loss, ep_len, ep_ret, opt_usage, opt_probs, termprobs, rollout_time, training_time, self.config.epsilon(self.epoch)
 
     def collect_rollout(self):
         obs = self.obs
@@ -155,11 +165,12 @@ class Trainer:
         forceopt = np.array([self.config.batch_size // self.config.num_options for i in range(self.config.num_options)])
         for i in random.sample(range(self.config.num_options), k=self.config.batch_size % self.config.num_options):
             forceopt[i] += 1
-        forceopt = [i for i in range(forceopt) for j in range(forceopt[i])]
+        forceopt = [i for i in range(self.config.num_options) for j in range(forceopt[i])]
 
         step = 0
 
         zeros = np.zeros(self.config.n_envs)
+        zero = np.array([0])
 
         while not self.buffer.is_full():
 
@@ -171,7 +182,7 @@ class Trainer:
 
             for i in range(self.config.n_envs):
                 self.opt_len[i][-1][opt[i]] += 1
-                self.opt_ret[i][-1][opt[i]] += 1
+                self.opt_ret[i][-1][opt[i]] += rew[i]
 
             # push step and move to next observation
             self.buffer.push(obs, zeros, done, act, logp, opt.clone().cpu().numpy(), zeros, zeros, zeros)
@@ -180,15 +191,18 @@ class Trainer:
             if np.any(done):
                 for i in range(self.config.n_envs):
                     if done[i]:
-                        self.opt_len[i].append([0 for j in range(self.config.num_options)])
-                        self.opt_ret[i].append([0 for j in range(self.config.num_options)])
+                          self.opt_len[i].append([0 for j in range(self.config.num_options)])
+                          self.opt_ret[i].append([0 for j in range(self.config.num_options)])
 
-        self.buffer.compute_returns_and_advantages(self.model, self.epoch, obs, 0, 0, 0) # make sure this is act the right epoch
+            step += 1
+
+
+        self.buffer.compute_returns_and_advantages(self.model, self.epoch, obs, zero, zero, zero) # make sure this is act the right epoch
 
         self.obs = obs
         self.opt = opt
 
-    def get_loss(self, data, disc_data):
+    def get_loss(self, data, disc_data, pretrain=False):
         obs = data["obs"]
         mask = 1 - data["dones"]
         act = data["act"]
@@ -205,8 +219,12 @@ class Trainer:
         q_z = self.model.discriminator(self.model.get_state(disc_obs))
 
         policy_loss = (-logp * adv).mean()
-        critic_loss = F.mse_loss(ret, optval)
-        termination_loss = (termprob * (optval_old - val_old + self.config.termination_reg) * mask).mean()
+        if pretrain:
+            critic_loss = torch.tensor(0)
+            termination_loss = torch.tensor(0)
+        else:
+            critic_loss = F.mse_loss(ret, optval)
+            termination_loss = (termprob * (optval_old - val_old + self.config.termination_reg) * mask).mean()
 
         entropy_loss = act_entropy.mean() - 0 * opt_entropy.mean()
 
