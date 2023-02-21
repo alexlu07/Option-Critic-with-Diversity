@@ -59,6 +59,7 @@ class Buffer:
             "rew": self.rew,
             "dones": self.dones,
             "act": self.act,
+            "logp": self.logp,
             "opt": self.opt,
             "optval": self.optval,
             "val": self.val,
@@ -142,13 +143,18 @@ class Buffer:
             next_termprob = termprob[step+1]
 
             U = (1 - next_termprob) * next_optval + next_termprob * next_val
-            delta = 1 * self.rew[step] + self.gamma * next_non_terminal * U - self.optval[step]
-            delta_ret = 1 * self.rew[step] + self.gamma * next_non_terminal * U - self.optval[step]
+            delta = self.rew[step] + self.gamma * next_non_terminal * U - self.optval[step]
+            delta_ret = self.rew[step] + self.gamma * next_non_terminal * U - self.optval[step]
             last_gae_lam = delta + self.gamma * self.lam * next_non_terminal * last_gae_lam
             last_gae_lam_ret = delta_ret + self.gamma * self.lam * next_non_terminal * last_gae_lam_ret
             self.adv[step] = last_gae_lam
             self.ret[step] = last_gae_lam_ret
             # self.ret[step] = last_gae_lam
+
+        # print(self.adv.max(), self.ret.max(), pseudo.max())
+        # print(pseudo)
+
+        pseudo.fill(1e-10)
 
         if self.adv.any():
             self.adv += pseudo / pseudo.max() * self.adv.max() / 7
@@ -161,6 +167,8 @@ class Buffer:
         # self.ret = self.adv + self.optval
         self.ret += self.optval
         self.adv = (self.adv - self.adv.mean()) / self.adv.std()
+
+        # print(self.ret.max(), self.ret)
 
 
         # ep_end = self.dones.argmax()

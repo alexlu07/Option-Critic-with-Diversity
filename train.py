@@ -58,12 +58,14 @@ class Trainer:
         loss_logs = []
 
         termprobs = self.buffer.termprob.flatten()
-        for data, disc_data in self.buffer.get():
-            self.optimizer.zero_grad()
-            loss, logs = self.get_loss(data, disc_data, pretrain=pretrain)
-            loss_logs.append(logs)
-            loss.backward()
-            self.optimizer.step()
+        for _ in range(self.config.n_steps):
+            for data, disc_data in self.buffer.get():
+                self.optimizer.zero_grad()
+                loss, logs = self.get_loss(data, disc_data, pretrain=pretrain)
+                loss_logs.append(logs)
+                loss.backward()
+                torch.nn.utils.clip_grad_norm_(self.model.parameters(), 0.5)
+                self.optimizer.step()
 
         training_time = time.time() - start
 
@@ -153,7 +155,7 @@ class Trainer:
             val, optval = self.prime_model.get_value(obs, opt)
             termprob = self.model.get_termination(obs, opt, obs=True)[1]
 
-        self.buffer.compute_returns_and_advantages(self.model, self.epoch, obs, optval, val, termprob) # make sure this is act the right epoch
+        self.buffer.compute_returns_and_advantages(self.model, self.epoch, obs, optval, val, termprob)
 
         self.obs = obs
         self.opt = opt
@@ -171,6 +173,7 @@ class Trainer:
 
         zeros = np.zeros(self.config.n_envs)
         zero = np.array([0])
+        survival_rew = np.ones(self.config.n_envs)
 
         while not self.buffer.is_full():
 
@@ -185,7 +188,7 @@ class Trainer:
                 self.opt_ret[i][-1][opt[i]] += rew[i]
 
             # push step and move to next observation
-            self.buffer.push(obs, zeros, done, act, logp, opt.clone().cpu().numpy(), zeros, zeros, zeros)
+            self.buffer.push(obs, survival_rew, done, act, logp, opt.clone().cpu().numpy(), zeros, zeros, zeros)
             obs = to_tensor(next_obs, self.config.rollout_device)
 
             if np.any(done):
@@ -206,6 +209,7 @@ class Trainer:
         obs = data["obs"]
         mask = 1 - data["dones"]
         act = data["act"]
+        logp_old = data["logp"]
         opt = data["opt"].to(torch.int64)
         ret = data["ret"]
         adv = data["adv"]
@@ -218,7 +222,11 @@ class Trainer:
         logp, optval, termprob, act_entropy, opt_entropy = self.model.evaluate(obs, act, opt)
         q_z = self.model.discriminator(self.model.get_state(disc_obs))
 
-        policy_loss = (-logp * adv).mean()
+        ratio = torch.exp(logp - logp_old)
+        clip_adv = torch.clamp(ratio, 1-self.config.clip_ratio, 1+self.config.clip_ratio) * adv
+        policy_loss = -torch.min(ratio * adv, clip_adv).mean()
+
+        # policy_loss = (-logp * adv).mean()
         if pretrain:
             critic_loss = torch.tensor(0)
             termination_loss = torch.tensor(0)
@@ -230,7 +238,7 @@ class Trainer:
 
         discriminator_loss = self.cross_entropy_loss(q_z, disc_opt)
 
-        loss = policy_loss + critic_loss + termination_loss + discriminator_loss + 0.05 * entropy_loss
+        loss = policy_loss + 0.5 * critic_loss + termination_loss + discriminator_loss + 0.05 * entropy_loss
 
         return loss, (policy_loss.cpu().item(), critic_loss.cpu().item(), termination_loss.cpu().item(), discriminator_loss.cpu().item())
 

@@ -19,8 +19,8 @@ def train(env, pretrain=False, save=True, load=True, epoch=None, save_interval=1
 
 
     table = {name: [[0 for a in range(3)] for b in range(701)] for name in ["ep_len", "ep_ret", "term_probs", "disc_loss"]}
-    table["opt_usage"] = [[0 for a in range(3 * 2)] for b in range(701)]
-    table["opt_probs"] = [[0 for a in range(3 * 2)] for b in range(701)]
+    table["opt_usage"] = [[0 for a in range(3 * 4)] for b in range(701)]
+    table["opt_probs"] = [[0 for a in range(3 * 4)] for b in range(701)]
     table["ep_rets"] = []
 
     for a in range(2, 3):
@@ -72,18 +72,21 @@ def train(env, pretrain=False, save=True, load=True, epoch=None, save_interval=1
 
             trainer.epoch = 0
 
-        rets_deque = deque(maxlen=150)
+        rets_deque = deque(maxlen=100)
         rets_counter = 0
         epoch = 0
         while epoch < 700:
             epoch, pi_loss, vf_loss, term_loss, disc_loss, ep_len, ep_ret, opt_usage, opt_probs, termprobs, rollout_time, training_time, eps = trainer.train_one_epoch()
             for i in ep_ret:
                 rets_deque.append(i)
-                writer.add_scalar("Training/ep_rets", sum(rets_deque) / len(rets_deque), rets_counter)
+                writer.add_scalar("Training/ep_rets", i, rets_counter)
                 if len(table["ep_rets"]) <= rets_counter:
                     table["ep_rets"].append([0 for x in range(3)])
-                table["ep_rets"][rets_counter][a] = sum(rets_deque) / len(rets_deque)
+                table["ep_rets"][rets_counter][a] = i
                 rets_counter += 1
+
+            writer.add_scalar("Training/avg_rets", sum(rets_deque) / len(rets_deque), epoch)
+
 
             ep_len = sum(ep_len)/len(ep_len)
             ep_ret = sum(ep_ret)/len(ep_ret)
@@ -125,10 +128,10 @@ def train(env, pretrain=False, save=True, load=True, epoch=None, save_interval=1
             for i, x in enumerate(opt_probs):
                 table["opt_probs"][epoch][a*2 + i] = x                
 
-            for key in table:
-                with open("data/" + key + ".csv", 'w') as f:
-                    csvwriter = csv.writer(f)
-                    csvwriter.writerows(table[key])
+            # for key in table:
+            #     with open("data/" + key + ".csv", 'w') as f:
+            #         csvwriter = csv.writer(f)
+            #         csvwriter.writerows(table[key])
 
             if save and epoch % save_interval == 0:
                 trainer.save_state(save_interval)
@@ -182,5 +185,5 @@ def watch(env, epoch, force_opt=None):
 
 # watch("CartPole-v1", "600")
 # train("MiniGrid-FourRooms-v0", n_envs=1, load=False, save=False, asynchronous=False)
-# train("fourrooms", n_envs=1, load=False, save=False, asynchronous=False)
-train("CartPole-v0", n_envs=1, pretrain=False, load=False, save=True, asynchronous=False)
+# train("fourrooms", n_envs=1, pretrain=False, load=False, save=False, asynchronous=False)
+train("CartPole-v1", n_envs=1, pretrain=False, load=False, save=True, asynchronous=False)

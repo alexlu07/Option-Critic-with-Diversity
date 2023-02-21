@@ -1,4 +1,5 @@
 import gymnasium as gym
+from gymnasium.wrappers import *
 import torch
 import numpy as np
 from fourrooms import Fourrooms
@@ -19,12 +20,14 @@ def make_env(env, num_envs, render_mode, asynchronous):
         if len(temp_env.observation_space.shape) < 3:
             wrapper, net_type = None, "feature"
         else:
-            wrapper, net_type = [TransposeWrapper], "conv"
+            wrapper, net_type = [lambda x: AtariPreprocessing(x, grayscale_obs=True, scale_obs=True, terminal_on_life_loss=True, grayscale_newaxis=True), TransposeWrapper], "conv"
+            kwargs["full_action_space"] = False
+            kwargs["frameskip"] = 1
 
     elif isinstance(temp_env.observation_space, gym.spaces.Dict) and "image" in temp_env.observation_space.spaces.keys():
         wrapper, net_type = MiniGridWrapper, "conv"
 
-    env = gym.vector.make(env, wrappers=wrapper, num_envs=num_envs, render_mode=render_mode, asynchronous=asynchronous)
+    env = gym.vector.make(env, wrappers=wrapper, num_envs=num_envs, render_mode=render_mode, asynchronous=asynchronous, **kwargs)
     return env, net_type
 
 class TransposeWrapper(gym.ObservationWrapper):
@@ -33,7 +36,7 @@ class TransposeWrapper(gym.ObservationWrapper):
         space = env.observation_space
         low = transpose(space.low)
         high = transpose(space.high)
-        self.observation_space = gym.spaces.Box(low, high, space.dtype)
+        self.observation_space = gym.spaces.Box(low, high, dtype=space.dtype)
     
     def observation(self, obs):
         return transpose(obs)

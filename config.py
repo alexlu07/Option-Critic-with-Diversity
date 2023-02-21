@@ -25,18 +25,19 @@ class Config:
         #     [64, {"kernel_size": 2}],
         #     512,
         # ]
-        self.critic_arch = [64]
-        self.term_arch = [64]
-        self.opt_arch = [64]
-        self.discriminator_arch = [64]
-        self.num_options = 2
+        self.critic_arch = [64, 64]
+        self.term_arch = [64, 64]
+        self.opt_arch = [64, 64]
+        self.discriminator_arch = [64, 64]
+        self.num_options = 1
 
-        self.minibatch_size = 1024
-        self.batch_size = 1024
+        self.n_steps = 10
+        self.minibatch_size = 64
+        self.batch_size = 2048
 
         self.freeze_interval = None
 
-        self.lr = 0.001
+        self.lr = 3e-4
         self.temperature = 1.0
         self.eps_start = 1.0
         self.eps_min = 0.1
@@ -46,6 +47,7 @@ class Config:
         self.lam = 0.95
         # self.termination_reg = 0.001
         self.termination_reg = 0.0003
+        self.clip_ratio = 0.2
 
     def epsilon(self, epoch):
         if self.testing:
