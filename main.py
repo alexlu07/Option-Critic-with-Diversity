@@ -187,3 +187,4 @@ def watch(env, epoch, force_opt=None):
 # train("MiniGrid-FourRooms-v0", n_envs=1, load=False, save=False, asynchronous=False)
 # train("fourrooms", n_envs=1, pretrain=False, load=False, save=False, asynchronous=False)
 train("CartPole-v1", n_envs=1, pretrain=False, load=False, save=True, asynchronous=False)
+# train("ALE/Seaquest-v5", n_envs=1, pretrain=False, load=False, save=True, asynchronous=False)

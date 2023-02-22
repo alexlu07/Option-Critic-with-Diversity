@@ -29,7 +29,7 @@ class Config:
         self.term_arch = [64, 64]
         self.opt_arch = [64, 64]
         self.discriminator_arch = [64, 64]
-        self.num_options = 1
+        self.num_options = 2
 
         self.n_steps = 10
         self.minibatch_size = 64

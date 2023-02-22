@@ -98,14 +98,14 @@ class Buffer:
             # Add diversity pseudo reward
 
             # Discriminator psuedo reward
-            state = model.get_state(obs)
-            q_z = model.discriminator(state[1:]).cpu()
-            q_z = q_z.gather(-1, to_tensor(self.opt, dtype=torch.int64).unsqueeze(-1)).squeeze(-1).numpy()
+            # state = model.get_state(obs)
+            # q_z = model.discriminator(state[1:]).cpu()
+            # q_z = q_z.gather(-1, to_tensor(self.opt, dtype=torch.int64).unsqueeze(-1)).squeeze(-1).numpy()
             
             # master based pseudo reward
-            # state = model.get_state(obs)
-            # q_z = model.opt_critic(state[:-1]).cpu().softmax(-1)
-            # q_z = q_z.gather(-1, to_tensor(self.opt, dtype=torch.int64).unsqueeze(-1)).squeeze(-1).numpy()
+            state = model.get_state(obs)
+            q_z = model.opt_critic(state[:-1]).cpu().softmax(-1)
+            q_z = q_z.gather(-1, to_tensor(self.opt, dtype=torch.int64).unsqueeze(-1)).squeeze(-1).numpy()
 
             # p_z calc (wrong bc its p(z), not p(z|s))
             # Eps-greedy p_z calc (wrong)
@@ -152,7 +152,7 @@ class Buffer:
             # self.ret[step] = last_gae_lam
 
         # print(self.adv.max(), self.ret.max(), pseudo.max())
-        # print(pseudo)
+        print(pseudo.mean(), q_z, p_z.mean())
 
         pseudo.fill(1e-10)
 
